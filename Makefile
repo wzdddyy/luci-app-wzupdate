@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-wzupdate
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=3
+PKG_RELEASE:=5
 PKG_MAINTAINER:=wzdddyy
 PKG_LICENSE:=Apache-2.0
 
