@@ -62,6 +62,7 @@ return view.extend({
 			this._renderSettings()
 		]);
 
+		this._root = page;
 		this._apply(st);
 
 		poll.add(function() {
@@ -145,20 +146,28 @@ return view.extend({
 
 	_renderSettings: function() {
 		var r = this._refs;
+		var self = this;
 		var s = 'wzupdate';
 
 		r.enabled = E('input', {
 			type: 'checkbox',
-			checked: uci.get(s, 'settings', 'enabled') !== '0'
+			checked: uci.get(s, 'settings', 'enabled') !== '0',
+			'change': function() { self._queueSave(); }
 		});
-		r.imageSel = E('select', { 'class': 'wz-input' }, [
+		r.imageSel = E('select', {
+			'class': 'wz-input',
+			'change': function() { self._queueSave(); }
+		}, [
 			E('option', { value: 'auto' }, [ _('自动（推荐）') ]),
 			E('option', { value: 'wifi' }, [ _('WiFi 版') ]),
 			E('option', { value: 'nowifi' }, [ _('无 WiFi 版') ])
 		]);
 		r.imageSel.value = uci.get(s, 'settings', 'image') || 'auto';
 
-		r.channelSel = E('select', { 'class': 'wz-input' }, [
+		r.channelSel = E('select', {
+			'class': 'wz-input',
+			'change': function() { self._queueSave(); }
+		}, [
 			E('option', { value: 'auto' }, [ _('自动（直连失败走镜像）') ]),
 			E('option', { value: 'github' }, [ _('仅 GitHub') ]),
 			E('option', { value: 'mirror' }, [ _('仅镜像加速') ])
@@ -170,7 +179,7 @@ return view.extend({
 			E('div', { 'class': 'wz-field' }, [
 				E('div', {}, [
 					E('div', { 'class': 'wz-field-label' }, [ _('启用自动更新') ]),
-					E('div', { 'class': 'wz-field-help' }, [ _('每 30 分钟检查一次；发现新版本自动下载、校验并写入备份分区，不会自动重启') ])
+					E('div', { 'class': 'wz-field-help' }, [ _('每 30 分钟检查一次；发现新版本自动下载、校验并写入备份分区，不会自动重启。修改后立即生效') ])
 				]),
 				E('div', { 'class': 'wz-field-control' }, [
 					E('label', { 'class': 'wz-switch' }, [ r.enabled, E('span') ])
@@ -195,6 +204,8 @@ return view.extend({
 
 	_apply: function(st) {
 		var r = this._refs;
+		if (this._root)
+			this._root.classList.toggle('wz-dark', this._isDark());
 		var local = st.local || {};
 		var remote = st.remote || null;
 		var prog = st.progress || {};
@@ -210,7 +221,7 @@ return view.extend({
 		r.localVer.appendChild(document.createTextNode(local.version || _('未知')));
 		r.localVer.appendChild(E('small', {}, [ _('编译时间') ]));
 		r.device.textContent = local.device || '—';
-		r.target.textContent = local.target || '—';
+		r.target.textContent = local.firmware === 'nowifi' ? _('无 WiFi 版') : _('WiFi 版');
 		r.uptime.textContent = local.uptime || '—';
 		r.rollback.textContent = pending
 			? (pending.running ? _('保留上一版本，可回退') : _('保留当前版本，可撤回本次更新'))
@@ -246,6 +257,10 @@ return view.extend({
 		var notes = [];
 		if (!local.ab) {
 			notes.push(_('当前分区表没有可用的备份分区，无法安全写入新固件。'));
+			if (local.abMissing)
+				notes.push(_('未识别的分区：') + local.abMissing);
+			if (local.labels)
+				notes.push(_('已识别的分区：') + local.labels);
 			notes.push(_('请先刷入支持双分区更新的分区镜像后再使用在线更新。'));
 		}
 		else if (hasRemote && remote.notes) {
@@ -323,6 +338,26 @@ return view.extend({
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
 		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
 		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
+	},
+
+	_isDark: function() {
+		var style = window.getComputedStyle(document.body);
+		var parse = function(value) {
+			var m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?/.exec(value || '');
+			if (!m)
+				return null;
+			return {
+				lum: (0.299 * +m[1] + 0.587 * +m[2] + 0.114 * +m[3]) / 255,
+				alpha: (m[4] === undefined) ? 1 : parseFloat(m[4])
+			};
+		};
+		var bg = parse(style.backgroundColor);
+		if (bg && bg.alpha > 0.1)
+			return bg.lum < 0.5;
+		var fg = parse(style.color);
+		if (fg)
+			return fg.lum > 0.6;
+		return false;
 	},
 
 	_deriveState: function(st) {
@@ -403,31 +438,31 @@ return view.extend({
 		return callCancel();
 	},
 
-	handleSave: function() {
+	_queueSave: function() {
+		var self = this;
+		if (this._saveTimer)
+			clearTimeout(this._saveTimer);
+		this._saveTimer = setTimeout(function() { self._persist(); }, 300);
+	},
+
+	_persist: function() {
 		var s = 'wzupdate';
 		uci.set(s, 'settings', 'enabled', this._refs.enabled.checked ? '1' : '0');
 		uci.set(s, 'settings', 'auto', this._refs.enabled.checked ? '1' : '0');
 		uci.set(s, 'settings', 'image', this._refs.imageSel.value);
 		uci.set(s, 'settings', 'channel', this._refs.channelSel.value);
-		return uci.save();
-	},
-
-	handleSaveApply: function(ev, mode) {
-		var self = this;
-		return this.handleSave().then(function() {
+		return uci.save().then(function() {
 			return uci.apply();
 		}).then(function() {
 			return fs.exec('/etc/init.d/wzupdate', 'restart');
 		}).then(function() {
 			ui.addNotification(null, E('p', {}, [ _('设置已保存') ]), 'info');
-		}).catch(function() {});
+		}).catch(function() {
+			ui.addNotification(null, E('p', {}, [ _('设置保存失败') ]), 'error');
+		});
 	},
 
-	handleReset: function() {
-		return uci.unload('wzupdate').then(function() {
-			return uci.load('wzupdate');
-		}).then(function() {
-			location.reload();
-		});
-	}
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });
