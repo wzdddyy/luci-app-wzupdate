@@ -54,7 +54,9 @@ get_state() {
 
 uci_get() {
 	local v=""
-	v=$(uci -q get "wzupdate.$1" 2>/dev/null)
+	v=$(uci -q get "wzupdate.settings.$1" 2>/dev/null)
+	[ -n "$v" ] || v=$(uci -q get "wzupdate.@wzupdate[0].$1" 2>/dev/null)
+	[ -n "$v" ] || v=$(uci -q get "wzupdate.$1" 2>/dev/null)
 	[ -n "$v" ] && printf '%s' "$v" || printf '%s' "${2:-}"
 }
 
@@ -599,6 +601,12 @@ run_manual() {
 		lock_release
 		return 0
 	fi
+	if ! ab_supported; then
+		set_state error 0 '分区不支持在线更新'
+		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+		lock_release
+		return 1
+	fi
 	if download_image && prepare_image && write_image; then
 		:
 	else
@@ -624,9 +632,12 @@ run_auto() {
 	: >"$LOG"
 	log '自动检查更新'
 	if check_update && [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" = "1" ]; then
-		log '自动更新：开始下载'
-		if download_image && prepare_image && write_image; then
-			:
+		if ! ab_supported; then
+			set_state error 0 '分区不支持在线更新'
+			log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+		else
+			log '自动更新：开始下载'
+			download_image && prepare_image && write_image
 		fi
 	else
 		[ "$(get_state phase)" = "error" ] || set_state idle 0 '已是最新版本'
