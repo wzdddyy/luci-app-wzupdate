@@ -6,7 +6,8 @@
 'require ui';
 
 var callStatus = rpc.declare({ object: 'wzupdate', method: 'status' });
-var callStart = rpc.declare({ object: 'wzupdate', method: 'start' });
+var callCheck = rpc.declare({ object: 'wzupdate', method: 'check' });
+var callUpdate = rpc.declare({ object: 'wzupdate', method: 'update' });
 var callCancel = rpc.declare({ object: 'wzupdate', method: 'cancel' });
 var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
@@ -39,7 +40,12 @@ return view.extend({
 				E('div', { 'class': 'wz-actions' }, [
 					this._refs.check = E('button', {
 						'class': 'wz-btn',
-						'click': function() { self._start(); }
+						'click': function() {
+							if (self._refs.check.dataset.mode === 'update')
+								self._update();
+							else
+								self._check(false);
+						}
 					}, [ _('检查更新') ]),
 					this._refs.reboot = E('button', {
 						'class': 'wz-btn primary',
@@ -63,6 +69,14 @@ return view.extend({
 
 		this._root = page;
 		this._apply(st);
+
+		// 进入页面自动检查一次（后端限制 1 分钟最多一次）
+		var st0 = this._deriveState(st);
+		if (!this._bootChecked) {
+			this._bootChecked = true;
+			if (st0 !== 'busy' && st0 !== 'pending' && st0 !== 'running')
+				setTimeout(function() { self._check(true); }, 400);
+		}
 
 		poll.add(function() {
 			return L.resolveDefault(callStatus(), null).then(function(s) {
@@ -149,7 +163,7 @@ return view.extend({
 
 		r.enabled = E('input', {
 			type: 'checkbox',
-			checked: uci.get(s, 'settings', 'enabled') !== '0',
+			checked: uci.get(s, 'settings', 'enabled') === '1',
 			'change': function() { self._queueSave(); }
 		});
 		r.imageSel = E('select', {
@@ -332,6 +346,9 @@ return view.extend({
 
 		// 按钮
 		var busy = (state === 'busy');
+		var canUpdate = !!(remote && remote.newer && !pending && local.ab && state !== 'busy');
+		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
+		r.check.dataset.mode = canUpdate ? 'update' : 'check';
 		r.check.disabled = busy || state === 'pending';
 		r.check.style.display = '';
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
@@ -422,14 +439,29 @@ return view.extend({
 		return bytes + ' B';
 	},
 
-	_start: function() {
+	_check: function(force) {
 		var self = this;
-		self._refs.check.disabled = true;
-		if (self._refs.progressExtra)
-			self._refs.progressExtra.textContent = _('已提交，正在检查更新…');
-		return callStart().catch(function() {
+		if (!force && Date.now() - (this._lastCheck || 0) < 60000) {
+			ui.addNotification(null, E('p', {}, [ _('检查过于频繁，请 1 分钟后再试') ]), 'warning');
+			return Promise.resolve();
+		}
+		this._lastCheck = Date.now();
+		return callCheck().catch(function() {
+			ui.addNotification(null, E('p', {}, [ _('检查更新失败，请查看日志') ]), 'error');
+		}).then(function() {
+			setTimeout(function() {
+				L.resolveDefault(callStatus(), null).then(function(s) {
+					if (s)
+						self._apply(s);
+				});
+			}, 1000);
+		});
+	},
+
+	_update: function() {
+		var self = this;
+		return callUpdate().catch(function() {
 			ui.addNotification(null, E('p', {}, [ _('启动更新失败，请查看日志') ]), 'error');
-			self._refs.check.disabled = false;
 		}).then(function() {
 			setTimeout(function() {
 				L.resolveDefault(callStatus(), null).then(function(s) {
