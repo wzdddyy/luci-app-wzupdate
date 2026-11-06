@@ -11,10 +11,7 @@
 			"ubus": {
 				"wzupdate": [ "start", "check", "cancel", "rollback", "reboot" ]
 			},
-			"uci": [ "wzupdate" ],
-			"file": {
-				"/etc/init.d/wzupdate": [ "exec" ]
-			}
+			"uci": [ "wzupdate" ]
 		}
 	}
 }
