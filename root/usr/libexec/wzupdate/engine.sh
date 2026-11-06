@@ -17,6 +17,7 @@ LOG=$BASE/update.log
 FW=$BASE/firmware.bin
 WORK=$BASE/work
 PENDING=/etc/wzupdate/pending
+LASTCHECK=$BASE/lastcheck
 
 REPO_DEFAULT=wzdddyy/iStoreOS-NN6000
 MIRROR_DEFAULT='https://ghfast.top/,https://gh-proxy.com/'
@@ -614,6 +615,18 @@ lock_release() {
 	rm -rf "$BASE/lock"
 }
 
+can_check() {
+	local last now
+	last=$(cat "$LASTCHECK" 2>/dev/null)
+	case "$last" in ''|*[!0-9]*) last=0 ;; esac
+	now=$(date +%s)
+	if [ $((now - last)) -lt 60 ]; then
+		return 1
+	fi
+	printf '%s' "$now" >"$LASTCHECK" 2>/dev/null
+	return 0
+}
+
 run_manual() {
 	lock_take || { log '已有任务在运行'; return 1; }
 	: >"$LOG"
@@ -640,16 +653,49 @@ run_manual() {
 
 run_check() {
 	lock_take || return 1
+	if ! can_check; then
+		lock_release
+		return 0
+	fi
 	: >"$LOG"
 	log '开始检查更新'
-	check_update
+	if check_update; then
+		if [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" = "1" ]; then
+			set_state idle 0 '发现新版本'
+		else
+			set_state idle 0 '已是最新版本'
+		fi
+	fi
 	lock_release
 	return 0
 }
 
+run_update_only() {
+	lock_take || return 1
+	set_state checking 2 '准备更新固件'
+	: >"$LOG"
+	if [ ! -f "$REMOTE" ] || [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" != "1" ]; then
+		set_state error 0 '请先检查更新'
+		log '请先检查更新'
+		lock_release
+		return 1
+	fi
+	if ! ab_supported; then
+		set_state error 0 '分区不支持在线更新'
+		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+		lock_release
+		return 1
+	fi
+	log '开始更新固件'
+	if download_image && prepare_image && write_image; then
+		:
+	fi
+	lock_release
+}
+
 run_auto() {
-	[ "$(uci_get enabled 1)" = "1" ] || return 0
-	[ "$(uci_get auto 1)" = "1" ] || return 0
+	[ "$(uci_get enabled 0)" = "1" ] || return 0
+	[ "$(uci_get auto 0)" = "1" ] || return 0
 	[ -f "$PENDING" ] && return 0
 	lock_take || return 0
 	: >"$LOG"
@@ -716,9 +762,10 @@ if [ "${WZU_LIB:-0}" != "1" ]; then
 	case "${1:-}" in
 		manual) run_manual ;;
 		check) run_check ;;
+		update) run_update_only ;;
 		auto) run_auto ;;
 		cancel|rollback) cancel_update ;;
 		apply) apply_update ;;
-		*) echo "usage: $0 {manual|check|auto|cancel|apply}" >&2; exit 1 ;;
+		*) echo "usage: $0 {manual|check|update|auto|cancel|apply}" >&2; exit 1 ;;
 	esac
 fi
