@@ -28,7 +28,9 @@
 }
 
 body.dark #wzupdate-page,
+html.dark #wzupdate-page,
 [data-darkmode="true"] #wzupdate-page,
+:root[data-argon-mode="dark"] #wzupdate-page,
 #wzupdate-page.wz-dark {
 	--wz-bg: #1e1e1e;
 	--wz-surface: #252526;
