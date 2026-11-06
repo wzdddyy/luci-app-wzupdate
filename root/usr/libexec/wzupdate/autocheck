@@ -1,9 +1,12 @@
 #!/bin/sh
-# 每 30 分钟自动检查一次（可在 LuCI 中关闭）
-# 首次启动延迟 2 分钟，避免开机时网络尚未就绪
+# 每分钟唤醒一次，实际每 30 分钟检查一次
+# 配置改动无需重启服务，循环内实时读取 UCI
 
-sleep 120
+last=0
 while true; do
+	sleep 60
+	now=$(date +%s)
+	[ $((now - last)) -lt 1800 ] && continue
 	/usr/libexec/wzupdate/engine.sh auto >/dev/null 2>&1
-	sleep 1800
+	last=$(date +%s)
 done
