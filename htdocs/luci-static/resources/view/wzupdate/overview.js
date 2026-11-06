@@ -1,7 +1,6 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
 'require uci';
 'require ui';
 
@@ -12,6 +11,9 @@ var callCancel = rpc.declare({ object: 'wzupdate', method: 'cancel' });
 var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
+
+// 与 Makefile 的 PKG_VERSION-PKG_RELEASE 保持一致，升级后强制造型文件重新拉取
+var UI_VERSION = '1.0.0-14';
 
 return view.extend({
 	load: function() {
@@ -27,7 +29,7 @@ return view.extend({
 
 		this._refs = {};
 
-		var href = L.resource('view/wzupdate/style.css');
+		var href = L.resource('view/wzupdate/style.css') + '?v=' + UI_VERSION;
 		if (!document.querySelector('link[href="' + href + '"]'))
 			document.head.appendChild(E('link', { rel: 'stylesheet', href: href }));
 
@@ -44,7 +46,7 @@ return view.extend({
 							if (self._refs.check.dataset.mode === 'update')
 								self._update();
 							else
-								self._check(false);
+								self._check();
 						}
 					}, [ _('检查更新') ]),
 					this._refs.reboot = E('button', {
@@ -70,20 +72,7 @@ return view.extend({
 		this._root = page;
 		this._apply(st);
 
-		// 进入页面自动检查一次（后端限制 1 分钟最多一次）
-		var st0 = this._deriveState(st);
-		if (!this._bootChecked) {
-			this._bootChecked = true;
-			if (st0 !== 'busy' && st0 !== 'pending' && st0 !== 'running')
-				setTimeout(function() { self._check(true); }, 400);
-		}
-
-		poll.add(function() {
-			return L.resolveDefault(callStatus(), null).then(function(s) {
-				if (s)
-					self._apply(s);
-			});
-		}, 3);
+		this._startPolling();
 
 		return page;
 	},
@@ -163,7 +152,8 @@ return view.extend({
 
 		r.enabled = E('input', {
 			type: 'checkbox',
-			checked: uci.get(s, 'settings', 'enabled') === '1',
+			// LuCI 的 E() 用 setAttribute 设置属性，布尔 false 也会选中，需用 ''/null 表示勾选状态
+			checked: (uci.get(s, 'settings', 'enabled') === '1') ? '' : null,
 			'change': function() { self._queueSave(); }
 		});
 		r.imageSel = E('select', {
@@ -220,6 +210,7 @@ return view.extend({
 			this._root.classList.toggle('wz-dark', this._isDark());
 		var local = st.local || {};
 		var remote = st.remote || null;
+		this._remoteChecked = (remote && remote.checked) ? remote.checked : null;
 		var prog = st.progress || {};
 		var pending = st.pending || null;
 		var settings = st.settings || {};
@@ -350,30 +341,49 @@ return view.extend({
 		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
 		r.check.dataset.mode = canUpdate ? 'update' : 'check';
 		r.check.disabled = busy || state === 'pending';
+		if (this._checking) {
+			r.check.textContent = _('检查中…');
+			r.check.dataset.mode = 'check';
+			r.check.disabled = true;
+		}
 		r.check.style.display = '';
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
 		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
 		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
 
-		this._hideThemeRefresh();
 	},
 
-	// Argon 在无保存按钮的页面会补一个「刷新」按钮，这里只隐藏本页所在的刷新按钮
-	_hideThemeRefresh: function() {
-		var root = document.getElementById('maincontent') || document.body;
-		var nodes = root.querySelectorAll('button, a');
-		for (var i = 0; i < nodes.length; i++) {
-			var n = nodes[i];
-			if (n.closest && n.closest('#wzupdate-page'))
-				continue;
-			var label = (n.textContent || '').trim() || n.getAttribute('title') || '';
-			if (label === '刷新' || label === 'Refresh')
-				n.style.display = 'none';
-		}
+	// 不用 LuCI poll，避免顶栏出现「刷新」轮询指示器；离开页面后自动停止
+	_startPolling: function() {
+		var self = this;
+
+		if (this._timer)
+			clearInterval(this._timer);
+
+		this._timer = setInterval(function() {
+			if (!self._root || !document.body.contains(self._root)) {
+				clearInterval(self._timer);
+				self._timer = null;
+				return;
+			}
+
+			L.resolveDefault(callStatus(), null).then(function(s) {
+				if (s)
+					self._apply(s);
+			});
+		}, 3000);
 	},
 
 	_isDark: function() {
-		var style = window.getComputedStyle(document.body);
+		var root = document.documentElement;
+		var mode = root.getAttribute('data-argon-mode') || root.getAttribute('data-darkmode');
+		if (mode === 'dark' || mode === 'true')
+			return true;
+		if (mode === 'light' || mode === 'false')
+			return false;
+		if (document.body.classList.contains('dark'))
+			return true;
+
 		var parse = function(value) {
 			var m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?/.exec(value || '');
 			if (!m)
@@ -383,10 +393,22 @@ return view.extend({
 				alpha: (m[4] === undefined) ? 1 : parseFloat(m[4])
 			};
 		};
-		var bg = parse(style.backgroundColor);
-		if (bg && bg.alpha > 0.1)
-			return bg.lum < 0.5;
-		var fg = parse(style.color);
+
+		// 主题背景可能只画在内容区，body 本身是 transparent，逐个探针取第一个不透明的底色
+		var probes = [
+			document.querySelector('.main-right'),
+			document.getElementById('maincontent'),
+			document.body
+		];
+		for (var i = 0; i < probes.length; i++) {
+			if (!probes[i])
+				continue;
+			var bg = parse(window.getComputedStyle(probes[i]).backgroundColor);
+			if (bg && bg.alpha > 0.1)
+				return bg.lum < 0.5;
+		}
+
+		var fg = parse(window.getComputedStyle(document.body).color);
 		if (fg)
 			return fg.lum > 0.6;
 		return false;
@@ -439,22 +461,58 @@ return view.extend({
 		return bytes + ' B';
 	},
 
-	_check: function(force) {
+	_check: function() {
 		var self = this;
-		if (!force && Date.now() - (this._lastCheck || 0) < 60000) {
-			ui.addNotification(null, E('p', {}, [ _('检查过于频繁，请 1 分钟后再试') ]), 'warning');
+		if (this._checking)
 			return Promise.resolve();
-		}
-		this._lastCheck = Date.now();
+
+		this._checking = true;
+		this._refs.check.disabled = true;
+		this._refs.check.textContent = _('检查中…');
+
+		var done = function() {
+			self._checking = false;
+			return L.resolveDefault(callStatus(), null).then(function(s) {
+				if (s)
+					self._apply(s);
+			});
+		};
+
 		return callCheck().catch(function() {
 			ui.addNotification(null, E('p', {}, [ _('检查更新失败，请查看日志') ]), 'error');
 		}).then(function() {
-			setTimeout(function() {
+			return self._waitCheck();
+		}).then(done, done);
+	},
+
+	// 等待后端检查结束：先观察到 checking 阶段，再等到它退出
+	_waitCheck: function() {
+		var before = this._remoteChecked;
+		var start = Date.now();
+		var seen = false;
+
+		return new Promise(function(resolve) {
+			var tick = function() {
 				L.resolveDefault(callStatus(), null).then(function(s) {
-					if (s)
-						self._apply(s);
+					var phase = (s && s.progress) ? (s.progress.phase || 'idle') : 'idle';
+
+					if (phase === 'checking')
+						seen = true;
+
+					// 检查结束：观察到 checking 退出，或在线版本时间戳已刷新
+					if ((seen && phase !== 'checking') || phase === 'error' ||
+						(!seen && s && s.remote && s.remote.checked && s.remote.checked !== before))
+						return resolve();
+
+					// 后端未启动或异常卡住时兜底，避免按钮一直不可用
+					if (Date.now() - start > 120000 || (!seen && Date.now() - start > 10000))
+						return resolve();
+
+					setTimeout(tick, 800);
 				});
-			}, 1000);
+			};
+
+			setTimeout(tick, 800);
 		});
 	},
 
