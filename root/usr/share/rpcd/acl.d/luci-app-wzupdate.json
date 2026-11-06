@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"wzupdate": [ "start", "check", "cancel", "rollback", "reboot" ]
+				"wzupdate": [ "start", "check", "update", "cancel", "rollback", "reboot" ]
 			},
 			"uci": [ "wzupdate" ]
 		}
