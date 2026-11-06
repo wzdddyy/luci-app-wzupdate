@@ -108,9 +108,41 @@ image_target() {
 }
 
 part_dev() {
-	local p="/dev/disk/by-partlabel/$1"
-	[ -e "$p" ] || return 1
-	readlink -f "$p"
+	local name=$1 p label dev
+	p="/dev/disk/by-partlabel/$1"
+	if [ -e "$p" ]; then
+		readlink -f "$p"
+		return 0
+	fi
+	# OpenWrt 没有 udev，/dev/disk/by-partlabel 通常不存在，改读 sysfs 的 PARTNAME
+	for p in /sys/class/block/*; do
+		[ -r "$p/uevent" ] || continue
+		label=$(sed -n 's/^PARTNAME=//p' "$p/uevent" 2>/dev/null | head -n1)
+		[ "$label" = "$name" ] || continue
+		dev=$(sed -n 's/^DEVNAME=//p' "$p/uevent" 2>/dev/null | head -n1)
+		[ -n "$dev" ] || continue
+		printf '/dev/%s' "$dev"
+		return 0
+	done
+	return 1
+}
+
+part_labels() {
+	local p label out=""
+	for p in /sys/class/block/*; do
+		[ -r "$p/uevent" ] || continue
+		label=$(sed -n 's/^PARTNAME=//p' "$p/uevent" 2>/dev/null | head -n1)
+		[ -n "$label" ] && out="$out $label"
+	done
+	printf '%s' "${out# }"
+}
+
+ab_missing() {
+	local miss=""
+	[ -n "$(part_dev '0:BOOTCONFIG')" ] || miss="$miss 0:BOOTCONFIG"
+	[ -n "$(part_dev '0:HLOS_1')" ] || miss="$miss 0:HLOS_1"
+	[ -n "$(part_dev 'rootfs_1')" ] || miss="$miss rootfs_1"
+	printf '%s' "${miss# }"
 }
 
 ab_supported() {
@@ -191,6 +223,9 @@ check_update() {
 
 	set_state checking 3 '正在查询在线版本'
 	log "查询在线版本：$repo"
+	if ! ab_supported; then
+		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+	fi
 
 	rm -f "$REMOTE"
 	if ! http_get "$api" "$json"; then
