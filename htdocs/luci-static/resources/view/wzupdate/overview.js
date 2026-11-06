@@ -3,7 +3,6 @@
 'require rpc';
 'require poll';
 'require uci';
-'require fs';
 'require ui';
 
 var callStatus = rpc.declare({ object: 'wzupdate', method: 'status' });
@@ -41,7 +40,7 @@ return view.extend({
 					this._refs.check = E('button', {
 						'class': 'wz-btn',
 						'click': function() { self._start(); }
-					}, [ _('手动检查更新') ]),
+					}, [ _('检查更新') ]),
 					this._refs.reboot = E('button', {
 						'class': 'wz-btn primary',
 						'click': function() { self._reboot(); }
@@ -128,8 +127,7 @@ return view.extend({
 		}
 		r.steps = steps;
 		return E('div', { 'class': 'wz-card' }, [
-			E('div', { 'class': 'wz-card-head' }, [
-				E('div', { 'class': 'wz-section' }, [ _('更新流程') ]),
+			E('div', { 'class': 'wz-card-head', style: 'justify-content:flex-end' }, [
 				r.flowBadge = E('span', { 'class': 'wz-badge' }, [ _('空闲') ])
 			]),
 			r.stepper = E('div', { 'class': 'wz-stepper' }, steps),
@@ -270,7 +268,7 @@ return view.extend({
 			notes.push(_('在线版本信息已获取。'));
 		}
 		else {
-			notes.push(_('尚未检查在线版本，点击「手动检查更新」开始。'));
+			notes.push(_('尚未检查在线版本，点击「检查更新」开始。'));
 		}
 		notes.push(_('写入完成并校验通过后，需要手动重启才会切换到新版本。'));
 		notes.forEach(function(n) { r.notes.appendChild(E('li', {}, [ n ])); });
@@ -333,11 +331,27 @@ return view.extend({
 
 		// 按钮
 		var busy = (state === 'busy');
-		r.check.disabled = busy || state === 'pending' || state === 'unsupported';
+		r.check.disabled = busy || state === 'pending';
 		r.check.style.display = '';
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
 		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
 		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
+
+		this._hideThemeRefresh();
+	},
+
+	// Argon 在无保存按钮的页面会补一个「刷新」按钮，这里只隐藏本页所在的刷新按钮
+	_hideThemeRefresh: function() {
+		var root = document.getElementById('maincontent') || document.body;
+		var nodes = root.querySelectorAll('button, a');
+		for (var i = 0; i < nodes.length; i++) {
+			var n = nodes[i];
+			if (n.closest && n.closest('#wzupdate-page'))
+				continue;
+			var label = (n.textContent || '').trim() || n.getAttribute('title') || '';
+			if (label === '刷新' || label === 'Refresh')
+				n.style.display = 'none';
+		}
 	},
 
 	_isDark: function() {
@@ -410,6 +424,8 @@ return view.extend({
 	_start: function() {
 		var self = this;
 		self._refs.check.disabled = true;
+		if (self._refs.progressExtra)
+			self._refs.progressExtra.textContent = _('已提交，正在检查更新…');
 		return callStart().catch(function() {
 			ui.addNotification(null, E('p', {}, [ _('启动更新失败，请查看日志') ]), 'error');
 			self._refs.check.disabled = false;
@@ -419,7 +435,7 @@ return view.extend({
 					if (s)
 						self._apply(s);
 				});
-			}, 800);
+			}, 1000);
 		});
 	},
 
@@ -446,19 +462,28 @@ return view.extend({
 	},
 
 	_persist: function() {
+		var self = this;
 		var s = 'wzupdate';
-		uci.set(s, 'settings', 'enabled', this._refs.enabled.checked ? '1' : '0');
-		uci.set(s, 'settings', 'auto', this._refs.enabled.checked ? '1' : '0');
+		var want = this._refs.enabled.checked;
+		uci.set(s, 'settings', 'enabled', want ? '1' : '0');
+		uci.set(s, 'settings', 'auto', want ? '1' : '0');
 		uci.set(s, 'settings', 'image', this._refs.imageSel.value);
 		uci.set(s, 'settings', 'channel', this._refs.channelSel.value);
 		return uci.save().then(function() {
 			return uci.apply();
 		}).then(function() {
-			return fs.exec('/etc/init.d/wzupdate', 'restart');
-		}).then(function() {
-			ui.addNotification(null, E('p', {}, [ _('设置已保存') ]), 'info');
+			// 回读后端配置，确认确实写入成功
+			return L.resolveDefault(callStatus(), null).then(function(st) {
+				if (!st || !st.settings)
+					throw new Error('status failed');
+				if (!!st.settings.enabled !== want) {
+					self._refs.enabled.checked = !!st.settings.enabled;
+					throw new Error('verify failed');
+				}
+				ui.addNotification(null, E('p', {}, [ _('设置已保存并生效') ]), 'info');
+			});
 		}).catch(function() {
-			ui.addNotification(null, E('p', {}, [ _('设置保存失败') ]), 'error');
+			ui.addNotification(null, E('p', {}, [ _('设置保存失败，请重试') ]), 'error');
 		});
 	},
 
