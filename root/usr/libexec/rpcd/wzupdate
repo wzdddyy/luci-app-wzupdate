@@ -90,8 +90,8 @@ do_status() {
 		awk '{gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\"%s\"", (NR > 1 ? "," : ""), $0} END{}')
 	log_json="[${log_json}]"
 
-	enabled=$(uci_get enabled 1)
-	auto=$(uci_get auto 1)
+	enabled=$(uci_get enabled 0)
+	auto=$(uci_get auto 0)
 	image=$(uci_get image auto)
 	channel=$(uci_get channel auto)
 	[ "$enabled" = "1" ] && en_bool=true || en_bool=false
@@ -133,13 +133,14 @@ run_bg() {
 
 case "$1" in
 	list)
-		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{},"rollback":{}}'
+		printf '{"status":{},"start":{},"check":{},"update":{},"cancel":{},"reboot":{},"rollback":{}}'
 		;;
 	call)
 		case "$2" in
 			status) do_status ;;
 			start) run_bg manual ;;
 			check) run_bg check ;;
+			update) run_bg update ;;
 			cancel|rollback) cancel_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			reboot) apply_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			*) printf '{"ok":false,"error":"unknown method"}' ;;
