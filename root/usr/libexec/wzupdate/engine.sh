@@ -219,9 +219,10 @@ http_get() {
 # ---------------- 检查更新 ----------------
 
 check_update() {
-	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt
+	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad
 	repo=$(uci_get repo "$REPO_DEFAULT")
-	api="https://api.github.com/repos/$repo/releases/latest"
+	# 带随机参数避免镜像缓存到「固件尚未上传完成」的旧响应
+	api="https://api.github.com/repos/$repo/releases/latest?ts=$(date +%s)-$$"
 	json="$BASE/release.json"
 
 	set_state checking 3 '正在查询在线版本'
@@ -255,10 +256,29 @@ check_update() {
 	jsonfilter -i "$json" -e '@.assets[*].browser_download_url' >"$BASE/assets.url" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].digest' >"$BASE/assets.digest" 2>/dev/null
 
+	# 部分 jsonfilter 版本不支持 [*] 通配，回退为按索引逐个提取
+	if [ ! -s "$BASE/assets.name" ]; then
+		i=0
+		: >"$BASE/assets.name"
+		: >"$BASE/assets.url"
+		: >"$BASE/assets.digest"
+		while [ "$i" -lt 50 ]; do
+			an=$(jsonfilter -i "$json" -e "@.assets[$i].name" 2>/dev/null)
+			[ -n "$an" ] || break
+			au=$(jsonfilter -i "$json" -e "@.assets[$i].browser_download_url" 2>/dev/null)
+			ad=$(jsonfilter -i "$json" -e "@.assets[$i].digest" 2>/dev/null)
+			printf '%s\n' "$an" >>"$BASE/assets.name"
+			printf '%s\n' "$au" >>"$BASE/assets.url"
+			printf '%s\n' "$ad" >>"$BASE/assets.digest"
+			i=$((i + 1))
+		done
+	fi
+
 	name=$(grep -F "$target-squashfs-sysupgrade.bin" "$BASE/assets.name" 2>/dev/null | head -n1)
 	if [ -z "$name" ]; then
 		set_state error 0 '该版本没有适用于当前设备的固件'
-		log "该版本没有适用于当前设备的固件（$target）"
+		log "该版本没有适用于当前设备的固件（目标：$target，发布：$tag）"
+		log "发布固件列表：$(tr '\n' ' ' <"$BASE/assets.name" 2>/dev/null | cut -c1-400)"
 		return 1
 	fi
 
