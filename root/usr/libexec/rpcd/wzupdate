@@ -9,6 +9,7 @@ do_status() {
 	local enabled auto image channel uptime up days hours
 	local remote_json pending_json log_json en_bool auto_bool
 	local e_lv e_model e_board e_target e_uptime e_phase e_msg e_image e_channel
+	local ab_miss labels e_abmiss e_labels
 
 	lv=$(local_version)
 	board=$(board_id)
@@ -25,6 +26,8 @@ do_status() {
 	fi
 	ab=0
 	ab_supported && ab=1
+	ab_miss=$(ab_missing 2>/dev/null)
+	labels=$(part_labels 2>/dev/null)
 	phase=$(get_state phase idle)
 	pct=$(get_state percent 0)
 	msg=$(get_state message '')
@@ -86,10 +89,12 @@ do_status() {
 	e_msg=$(json_esc "$msg")
 	e_image=$(json_esc "$image")
 	e_channel=$(json_esc "$channel")
+	e_abmiss=$(json_esc "$ab_miss")
+	e_labels=$(json_esc "$labels")
 
 	printf '{"ok":true,'
-	printf '"local":{"version":"%s","device":"%s","board":"%s","target":"%s","firmware":"%s","ab":%s,"uptime":"%s"},' \
-		"$e_lv" "$e_model" "$e_board" "$e_target" "$(firmware_type)" "$ab" "$e_uptime"
+	printf '"local":{"version":"%s","device":"%s","board":"%s","target":"%s","firmware":"%s","ab":%s,"abMissing":"%s","labels":"%s","uptime":"%s"},' \
+		"$e_lv" "$e_model" "$e_board" "$e_target" "$(firmware_type)" "$ab" "$e_abmiss" "$e_labels" "$e_uptime"
 	printf '"remote":%s,' "$remote_json"
 	printf '"progress":{"phase":"%s","percent":%s,"message":"%s"},' "$e_phase" "$pct" "$e_msg"
 	printf '"pending":%s,' "$pending_json"
