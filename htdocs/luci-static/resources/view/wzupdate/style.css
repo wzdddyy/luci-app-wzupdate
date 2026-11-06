@@ -17,6 +17,8 @@
 	--wz-info: #2f6feb;
 	--wz-info-soft: #eaf1fe;
 	--wz-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+	--wz-card-bg: rgba(255, 255, 255, .72);
+	--wz-card-border: rgba(16, 24, 40, .08);
 	--wz-radius: 10px;
 	--wz-radius-lg: 14px;
 	--wz-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -45,6 +47,8 @@ body.dark #wzupdate-page,
 	--wz-info: #6aa1ff;
 	--wz-info-soft: #1b2942;
 	--wz-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+	--wz-card-bg: rgba(37, 37, 38, .72);
+	--wz-card-border: rgba(255, 255, 255, .08);
 	color-scheme: dark;
 }
 
@@ -117,12 +121,14 @@ body.dark #wzupdate-page,
 }
 
 #wzupdate-page .wz-card {
-	background: var(--wz-surface);
-	border: 1px solid var(--wz-border);
+	background: var(--wz-card-bg);
+	border: 1px solid var(--wz-card-border);
 	border-radius: var(--wz-radius-lg);
 	box-shadow: var(--wz-shadow);
 	padding: 16px 18px;
 	margin-bottom: 12px;
+	backdrop-filter: blur(14px) saturate(1.2);
+	-webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 
 #wzupdate-page .wz-grid {
