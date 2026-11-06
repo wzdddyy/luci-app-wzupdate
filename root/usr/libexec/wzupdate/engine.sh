@@ -218,7 +218,7 @@ http_get() {
 # ---------------- 检查更新 ----------------
 
 check_update() {
-	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx
+	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt
 	repo=$(uci_get repo "$REPO_DEFAULT")
 	api="https://api.github.com/repos/$repo/releases/latest"
 	json="$BASE/release.json"
@@ -252,6 +252,7 @@ check_update() {
 
 	jsonfilter -i "$json" -e '@.assets[*].name' >"$BASE/assets.name" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].browser_download_url' >"$BASE/assets.url" 2>/dev/null
+	jsonfilter -i "$json" -e '@.assets[*].digest' >"$BASE/assets.digest" 2>/dev/null
 
 	name=$(grep -F "$target-squashfs-sysupgrade.bin" "$BASE/assets.name" 2>/dev/null | head -n1)
 	if [ -z "$name" ]; then
@@ -274,17 +275,26 @@ check_update() {
 	size=$(printf '%s' "$size" | tail -n1)
 	case "$size" in ''|*[!0-9]*) size=0 ;; esac
 
-	# 发布里若带 sha256sums 则记录期望哈希，写入前会强制比对
+	# 优先用 GitHub API 提供的 sha256 digest，其次找发布里的 sha256sums
 	sha=""
-	sha_url=""
-	sha_idx=$(grep -n -F 'sha256sums' "$BASE/assets.name" 2>/dev/null | head -n1 | cut -d: -f1)
-	if [ -n "$sha_idx" ]; then
-		sha_url=$(sed -n "${sha_idx}p" "$BASE/assets.url" 2>/dev/null)
+	names_cnt=$(awk 'END{print NR}' "$BASE/assets.name" 2>/dev/null)
+	digest_cnt=$(awk 'END{print NR}' "$BASE/assets.digest" 2>/dev/null)
+	if [ -n "$digest_cnt" ] && [ "$names_cnt" = "$digest_cnt" ]; then
+		digest=$(sed -n "${line}p" "$BASE/assets.digest" 2>/dev/null)
+		case "$digest" in
+			sha256:*) sha=${digest#sha256:} ;;
+		esac
 	fi
-	if [ -n "$sha_url" ] && http_get "$sha_url" "$BASE/sha256sums"; then
-		sha=$(grep -F " $name" "$BASE/sha256sums" 2>/dev/null | awk '{print $1}' | head -n1)
-		case "$sha" in ''|*[!0-9a-f]*) sha='' ;; esac
+	if [ -z "$sha" ]; then
+		sha_idx=$(grep -n -F 'sha256sums' "$BASE/assets.name" 2>/dev/null | head -n1 | cut -d: -f1)
+		if [ -n "$sha_idx" ]; then
+			sha_url=$(sed -n "${sha_idx}p" "$BASE/assets.url" 2>/dev/null)
+			if [ -n "$sha_url" ] && http_get "$sha_url" "$BASE/sha256sums"; then
+				sha=$(grep -F " $name" "$BASE/sha256sums" 2>/dev/null | awk '{print $1}' | head -n1)
+			fi
+		fi
 	fi
+	case "$sha" in ''|*[!0-9a-f]*) sha='' ;; esac
 
 	notes=$(jsonfilter -i "$json" -e '@.body' 2>/dev/null | head -n1 | cut -c1-400)
 	checked=$(date '+%H:%M')
@@ -341,6 +351,17 @@ download_image() {
 
 	size=$(stat -c %s "$FW" 2>/dev/null)
 	[ -n "$size" ] || size=0
+	if [ "$expected" -gt 0 ] 2>/dev/null && [ "$size" -lt "$expected" ]; then
+		local avail need
+		avail=$(df -k /tmp 2>/dev/null | awk 'NR==2 {print $4}')
+		case "$avail" in ''|*[!0-9]*) avail=0 ;; esac
+		need=$(( (expected - size) / 1024 + 16384 ))
+		if [ "$avail" -gt 0 ] && [ "$avail" -lt "$need" ]; then
+			set_state error 0 '临时空间不足，无法下载固件'
+			log "临时空间不足：还需 $((need / 1024))MB，/tmp 可用 $((avail / 1024))MB"
+			return 1
+		fi
+	fi
 	if [ "$expected" -gt 0 ] 2>/dev/null && [ "$size" = "$expected" ]; then
 		set_state downloading 60 '使用已下载的固件'
 		log '检测到完整固件，跳过下载'
@@ -441,7 +462,7 @@ prepare_image() {
 
 	off=""
 	for cand in $(grep -abo 'hsqs' "$FW" 2>/dev/null | cut -d: -f1 |
-			awk '$1 > 1048576 && $1 % 4096 == 0 {print}' | head -n 20); do
+			awk '$1 > 1048576 {print}' | head -n 30); do
 		if is_squashfs_at "$FW" "$cand"; then
 			off=$cand
 			break
@@ -457,27 +478,26 @@ prepare_image() {
 	fi
 	if [ -z "$off" ] || [ "$off" -ge $((size - 65536)) ]; then
 		set_state error 0 '固件格式无法识别'
-		log '固件格式无法识别'
+		log '固件格式无法识别：未找到 squashfs 文件系统'
 		return 1
 	fi
 
-	rm -rf "$WORK"
-	mkdir -p "$WORK" || return 1
-	head -c "$off" "$FW" >"$WORK/kernel.bin" || return 1
-	tail -c +$((off + 1)) "$FW" >"$WORK/rootfs.bin" || return 1
 	sha=$(sha256sum "$FW" 2>/dev/null | cut -d' ' -f1)
 	expect_sha=$(kv_read "$REMOTE" REMOTE_SHA '')
 	if [ -n "$expect_sha" ] && [ "$expect_sha" != "$sha" ]; then
 		rm -f "$FW" "$BASE/partial"
 		set_state error 0 '固件校验失败：SHA-256 不一致'
-		log '固件校验失败：SHA-256 与发布校验文件不一致'
+		log '固件校验失败：SHA-256 与发布校验值不一致'
 		return 1
 	fi
 	if [ -z "$expect_sha" ]; then
-		log '发布未提供校验文件，仅做写入回读校验'
+		log '发布未提供校验值，仅做写入回读校验'
 	fi
 
+	rm -rf "$WORK"
+	mkdir -p "$WORK" || return 1
 	kv_write "$WORK/meta" OFFSET "$off"
+	kv_write "$WORK/meta" SIZE "$size"
 	kv_write "$WORK/meta" SHA "$sha"
 
 	log "固件解析：内核 $((off / 1024)) KiB / 系统文件 $(((size - off) / 1024)) KiB"
@@ -486,16 +506,15 @@ prepare_image() {
 	return 0
 }
 
-verify_blob() {
-	local dev=$1 file=$2 size=$3 src dst blocks
-	src=$(sha256sum "$file" 2>/dev/null | cut -d' ' -f1)
+verify_dev() {
+	local dev=$1 size=$2 want=$3 blocks got
 	blocks=$(( (size + 1048575) / 1048576 ))
-	dst=$(dd if="$dev" bs=1M count="$blocks" 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
-	[ -n "$src" ] && [ "$src" = "$dst" ]
+	got=$(dd if="$dev" bs=1M count="$blocks" 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
+	[ -n "$want" ] && [ "$want" = "$got" ]
 }
 
 write_image() {
-	local active inactive kname rname kdev rdev ksize rsize ver stamp prev
+	local active inactive kname rname kdev rdev ksize fsize rsize ksha rsha skip ver stamp prev
 	active=$(current_slot)
 	inactive=$((1 - active))
 	kname=$(slot_kern "$inactive")
@@ -513,21 +532,24 @@ write_image() {
 		return 1
 	}
 
-	ksize=$(stat -c %s "$WORK/kernel.bin" 2>/dev/null)
-	rsize=$(stat -c %s "$WORK/rootfs.bin" 2>/dev/null)
-	[ -n "$ksize" ] && [ -n "$rsize" ] || {
-		set_state error 0 '固件文件缺失'
+	ksize=$(kv_read "$WORK/meta" OFFSET 0)
+	fsize=$(kv_read "$WORK/meta" SIZE 0)
+	rsize=$((fsize - ksize))
+	skip=$((ksize + 1))
+	[ "$ksize" -gt 0 ] && [ "$rsize" -gt 0 ] || {
+		set_state error 0 '固件信息缺失'
 		return 1
 	}
 
 	set_state writing 70 '正在写入备份分区（内核）'
-	log "写入内核到 $kname"
-	if ! dd if="$WORK/kernel.bin" of="$kdev" bs=65536 conv=fsync 2>/dev/null; then
+	log "写入内核到 $kname（$((ksize / 1024)) KiB）"
+	ksha=$(head -c "$ksize" "$FW" 2>/dev/null | sha256sum | cut -d' ' -f1)
+	if ! head -c "$ksize" "$FW" 2>/dev/null | dd of="$kdev" bs=65536 conv=fsync 2>/dev/null; then
 		set_state error 0 '写入内核失败'
 		log '写入内核失败'
 		return 1
 	fi
-	if ! verify_blob "$kdev" "$WORK/kernel.bin" "$ksize"; then
+	if ! verify_dev "$kdev" "$ksize" "$ksha"; then
 		set_state error 0 '内核写入校验失败'
 		log '内核写入校验失败'
 		return 1
@@ -535,15 +557,16 @@ write_image() {
 	log '内核写入校验通过'
 
 	set_state writing 84 '正在写入备份分区（系统文件）'
-	log "写入系统文件到 $rname"
-	if ! dd if="$WORK/rootfs.bin" of="$rdev" bs=1M conv=fsync 2>/dev/null; then
+	log "写入系统文件到 $rname（$((rsize / 1024)) KiB）"
+	rsha=$(tail -c +"$skip" "$FW" 2>/dev/null | sha256sum | cut -d' ' -f1)
+	if ! tail -c +"$skip" "$FW" 2>/dev/null | dd of="$rdev" bs=1M conv=fsync 2>/dev/null; then
 		set_state error 0 '写入系统文件失败'
 		log '写入系统文件失败'
 		return 1
 	fi
 	set_state writing 90 '正在校验写入内容'
 	log '回读备份分区校验写入结果'
-	if ! verify_blob "$rdev" "$WORK/rootfs.bin" "$rsize"; then
+	if ! verify_dev "$rdev" "$rsize" "$rsha"; then
 		set_state error 0 '系统文件写入校验失败'
 		log '系统文件写入校验失败'
 		return 1
