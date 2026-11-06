@@ -1,0 +1,125 @@
+#!/bin/sh
+# rpcd 后端：向 LuCI 提供 wzupdate 状态与操作
+WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh
+
+do_status() {
+	local lv board model target ab phase pct msg newer checked
+	local rver rtag rname rsize rnote
+	local pslot pver pprev ptime prun
+	local enabled auto image channel uptime up days hours
+	local remote_json pending_json log_json en_bool auto_bool
+	local e_lv e_model e_board e_target e_uptime e_phase e_msg e_image e_channel
+
+	lv=$(local_version)
+	board=$(board_id)
+	model=$(cat /tmp/sysinfo/model 2>/dev/null)
+	target=$(image_target 2>/dev/null)
+	up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1)
+	case "$up" in ''|*[!0-9]*) up=0 ;; esac
+	days=$((up / 86400))
+	hours=$(((up % 86400) / 3600))
+	if [ "$days" -gt 0 ]; then
+		uptime="$days 天 $hours 小时"
+	else
+		uptime="$hours 小时"
+	fi
+	ab=0
+	ab_supported && ab=1
+	phase=$(get_state phase idle)
+	pct=$(get_state percent 0)
+	msg=$(get_state message '')
+	case "$pct" in ''|*[!0-9]*) pct=0 ;; esac
+
+	remote_json='null'
+	if [ -f "$REMOTE" ]; then
+		rver=$(kv_read "$REMOTE" REMOTE_VER '')
+		rtag=$(kv_read "$REMOTE" REMOTE_TAG '')
+		rname=$(kv_read "$REMOTE" REMOTE_NAME '')
+		rsize=$(kv_read "$REMOTE" REMOTE_SIZE 0)
+		rnote=$(kv_read "$REMOTE" REMOTE_NOTE '')
+		newer=$(kv_read "$REMOTE" REMOTE_NEWER 0)
+		checked=$(kv_read "$REMOTE" CHECKED_AT '')
+		case "$rsize" in ''|*[!0-9]*) rsize=0 ;; esac
+		case "$newer" in 1) newer=true ;; *) newer=false ;; esac
+		rver=$(json_esc "$rver")
+		rtag=$(json_esc "$rtag")
+		rname=$(json_esc "$rname")
+		rnote=$(json_esc "$rnote")
+		checked=$(json_esc "$checked")
+		remote_json=$(printf '{"version":"%s","tag":"%s","name":"%s","size":%s,"notes":"%s","newer":%s,"checked":"%s"}' \
+			"$rver" "$rtag" "$rname" "$rsize" "$rnote" "$newer" "$checked")
+	fi
+
+	pending_json='null'
+	if [ -f "$PENDING" ]; then
+		pslot=$(kv_read "$PENDING" slot 1)
+		pver=$(kv_read "$PENDING" version '')
+		pprev=$(kv_read "$PENDING" prev_version '')
+		ptime=$(kv_read "$PENDING" time '')
+		prun=false
+		[ "$pver" = "$lv" ] && prun=true
+		case "$pslot" in ''|*[!0-9]*) pslot=1 ;; esac
+		pver=$(json_esc "$pver")
+		pprev=$(json_esc "$pprev")
+		ptime=$(json_esc "$ptime")
+		pending_json=$(printf '{"slot":%s,"version":"%s","prevVersion":"%s","time":"%s","running":%s}' \
+			"$pslot" "$pver" "$pprev" "$ptime" "$prun")
+	fi
+
+	log_json=$(tail -n 80 "$LOG" 2>/dev/null |
+		awk '{gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); printf "%s\"%s\"", (NR > 1 ? "," : ""), $0} END{}')
+	log_json="[${log_json}]"
+
+	enabled=$(uci_get enabled 1)
+	auto=$(uci_get auto 1)
+	image=$(uci_get image auto)
+	channel=$(uci_get channel auto)
+	[ "$enabled" = "1" ] && en_bool=true || en_bool=false
+	[ "$auto" = "1" ] && auto_bool=true || auto_bool=false
+
+	e_lv=$(json_esc "$lv")
+	e_model=$(json_esc "$model")
+	e_board=$(json_esc "$board")
+	e_target=$(json_esc "$target")
+	e_uptime=$(json_esc "$uptime")
+	e_phase=$(json_esc "$phase")
+	e_msg=$(json_esc "$msg")
+	e_image=$(json_esc "$image")
+	e_channel=$(json_esc "$channel")
+
+	printf '{"ok":true,'
+	printf '"local":{"version":"%s","device":"%s","board":"%s","target":"%s","firmware":"%s","ab":%s,"uptime":"%s"},' \
+		"$e_lv" "$e_model" "$e_board" "$e_target" "$(firmware_type)" "$ab" "$e_uptime"
+	printf '"remote":%s,' "$remote_json"
+	printf '"progress":{"phase":"%s","percent":%s,"message":"%s"},' "$e_phase" "$pct" "$e_msg"
+	printf '"pending":%s,' "$pending_json"
+	printf '"settings":{"enabled":%s,"auto":%s,"image":"%s","channel":"%s"},' \
+		"$en_bool" "$auto_bool" "$e_image" "$e_channel"
+	printf '"log":%s}' "$log_json"
+}
+
+run_bg() {
+	WZU_LIB=0 nohup /usr/libexec/wzupdate/engine.sh "$1" >/dev/null 2>&1 &
+	printf '{"ok":true}'
+}
+
+case "$1" in
+	list)
+		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{},"rollback":{}}'
+		;;
+	call)
+		# 参数由 rpcd 以 JSON 写入 stdin，当前操作无需参数
+		read -r _input 2>/dev/null || true
+		case "$2" in
+			status) do_status ;;
+			start) run_bg manual ;;
+			check) run_bg check ;;
+			cancel|rollback) cancel_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
+			reboot) apply_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
+			*) printf '{"ok":false,"error":"unknown method"}' ;;
+		esac
+		;;
+	*)
+		printf '{"ok":false}'
+		;;
+esac

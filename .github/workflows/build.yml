@@ -1,0 +1,142 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: apk
+            openwrt: "25.12.5"
+            sdkpath: x86/64
+            sdkfile: x86-64
+            gcc: "14.3.0"
+            ext: apk
+          - label: ipk
+            openwrt: "24.10.6"
+            sdkpath: x86/64
+            sdkfile: x86-64
+            gcc: "13.3.0"
+            ext: ipk
+
+    steps:
+      - uses: actions/checkout@v5
+        with: { path: src }
+
+      - name: Install deps
+        run: |
+          set -euo pipefail
+          missing=""
+          for c in gcc g++ make bison flex gawk git python3 rsync unzip zstd file wget bc perl; do
+            command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
+          done
+          for h in libelf-dev libncurses-dev libssl-dev zlib1g-dev; do
+            dpkg -s "$h" >/dev/null 2>&1 || missing="$missing $h"
+          done
+          if [ -n "$missing" ]; then
+            echo "runner 缺少:$missing -> 开始安装"
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends $missing
+            sudo apt-get clean
+          else
+            echo "runner 已自带全部构建依赖, 跳过 apt"
+          fi
+
+      - name: Cache SDK tarball
+        uses: actions/cache@v5
+        with:
+          path: ~/sdk-cache
+          key: sdk-${{ matrix.openwrt }}-${{ matrix.sdkfile }}-gcc${{ matrix.gcc }}
+
+      - name: Download SDK ${{ matrix.openwrt }}
+        run: |
+          set -euo pipefail
+          sdk="openwrt-sdk-${{ matrix.openwrt }}-${{ matrix.sdkfile }}_gcc-${{ matrix.gcc }}_musl.Linux-x86_64.tar.zst"
+          mkdir -p ~/sdk-cache sdk
+          if [ -s ~/sdk-cache/"$sdk" ]; then
+            echo "SDK 命中缓存: $sdk"
+          else
+            url="https://downloads.openwrt.org/releases/${{ matrix.openwrt }}/targets/${{ matrix.sdkpath }}/$sdk"
+            echo "GET $url"
+            wget -q -O ~/sdk-cache/"$sdk" "$url"
+          fi
+          tar -I zstd -xf ~/sdk-cache/"$sdk" -C sdk --strip-components=1
+
+      - name: Stage package
+        run: |
+          set -euo pipefail
+          mkdir -p sdk/package/luci-app-wzupdate
+          rsync -a --exclude '/.git/' --exclude '/.github/' src/ sdk/package/luci-app-wzupdate/
+
+      - name: Build package
+        working-directory: sdk
+        env:
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          [ -f feeds.conf ] || cp feeds.conf.default feeds.conf
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+          {
+            echo "CONFIG_TARGET_x86=y"
+            echo "CONFIG_TARGET_x86_64=y"
+            echo "CONFIG_PACKAGE_luci-app-wzupdate=m"
+          } > .config
+          make defconfig 2>&1 | tee /tmp/defconfig.log
+
+          grep -qx "CONFIG_PACKAGE_luci-app-wzupdate=m" .config || {
+            echo "ERROR: CONFIG_PACKAGE_luci-app-wzupdate 没有进 .config" >&2
+            grep -niE "wzupdate|dependency" /tmp/defconfig.log | head -30 >&2 || true
+            exit 1
+          }
+
+          if ! make package/luci-app-wzupdate/compile V=s -j"$(nproc)" 2>&1 | tee /tmp/build.log; then
+            echo "::error::make 失败, 下面是日志里的关键行"
+            grep -nE 'Error [0-9]|error:|fatal error|\*\*\* |No rule' /tmp/build.log | tail -60 || true
+            exit 1
+          fi
+
+          echo "--- 编出来的包 ---"
+          find bin/packages -type f | sort
+          find bin/packages -type f -name "luci-app-wzupdate*.${EXT}" -print -quit | grep -q . || {
+            echo "ERROR: 没有产出 .${EXT} 包" >&2
+            exit 1
+          }
+
+      - name: Collect
+        env:
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          pkg=$(find sdk/bin/packages -type f -name "luci-app-wzupdate*.${EXT}" -print -quit)
+          [ -n "$pkg" ] || { echo "ERROR: 没找到包" >&2; exit 1; }
+          cp -v "$pkg" "out/luci-app-wzupdate_all.${EXT}"
+          ls -lh out/
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-log-${{ matrix.label }}
+          path: |
+            /tmp/build.log
+            /tmp/defconfig.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: luci-app-wzupdate-${{ matrix.label }}
+          path: out/*
+          if-no-files-found: error
+
