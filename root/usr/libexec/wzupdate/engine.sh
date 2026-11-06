@@ -68,11 +68,24 @@ json_esc() {
 # ---------------- 设备与分区 ----------------
 
 board_id() {
-	local b=""
-	[ -r /tmp/sysinfo/board_name ] && b=$(cat /tmp/sysinfo/board_name)
+	local b="" m=""
+	[ -r /tmp/sysinfo/board_name ] && b=$(tr -d '\r\n ' </tmp/sysinfo/board_name 2>/dev/null)
+	# 兜底 1：设备树 compatible 列表
+	if [ -z "$b" ] && [ -r /proc/device-tree/compatible ]; then
+		b=$(tr '\000' '\n' </proc/device-tree/compatible 2>/dev/null |
+			grep -E '^link,nn6000-v[12]$' | head -n1)
+	fi
+	# 兜底 2：sysinfo 型号名
+	if [ -z "$b" ] && [ -r /tmp/sysinfo/model ]; then
+		m=$(tr -d '\r\n' </tmp/sysinfo/model 2>/dev/null)
+		case "$m" in
+			*NN6000*v2*|*nn6000*v2*) b='link,nn6000-v2' ;;
+			*NN6000*v1*|*nn6000*v1*) b='link,nn6000-v1' ;;
+		esac
+	fi
 	case "$b" in
-		link,nn6000-v1*) printf 'link_nn6000-v1' ;;
-		link,nn6000-v2*) printf 'link_nn6000-v2' ;;
+		*link,nn6000-v2*) printf 'link_nn6000-v2' ;;
+		*link,nn6000-v1*) printf 'link_nn6000-v1' ;;
 		*) printf '' ;;
 	esac
 }
@@ -99,13 +112,16 @@ firmware_type() {
 image_target() {
 	local base mode
 	base=$(board_id)
-	[ -n "$base" ] || return 1
+	case "$base" in
+		link_nn6000-v1|link_nn6000-v2) ;;
+		*) return 1 ;;
+	esac
 	mode=$(uci_get image auto)
 	case "$mode" in
 		wifi) printf '%s' "$base" ;;
-		nowifi) printf '%s-nowifi' ;;
+		nowifi) printf '%s-nowifi' "$base" ;;
 		*)
-			if has_wifi; then printf '%s' "$base"; else printf '%s-nowifi'; fi
+			if has_wifi; then printf '%s' "$base"; else printf '%s-nowifi' "$base"; fi
 			;;
 	esac
 }
@@ -246,11 +262,16 @@ check_update() {
 		return 1
 	fi
 
-	target=$(image_target) || {
-		set_state error 0 '当前设备不在支持列表中'
-		log '当前设备不在支持列表中'
-		return 1
-	}
+	target=$(image_target)
+	case "$target" in
+		link_nn6000-v1|link_nn6000-v1-nowifi|link_nn6000-v2|link_nn6000-v2-nowifi) ;;
+		*)
+			set_state error 0 '当前设备不在支持列表中'
+			log "当前设备不在支持列表中（board_name=$(tr -d '\r\n' </tmp/sysinfo/board_name 2>/dev/null | head -n1)，model=$(tr -d '\r\n' </tmp/sysinfo/model 2>/dev/null | head -n1)，目标：$target）"
+			return 1
+			;;
+	esac
+	log "当前设备目标：$target"
 
 	jsonfilter -i "$json" -e '@.assets[*].name' >"$BASE/assets.name" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].browser_download_url' >"$BASE/assets.url" 2>/dev/null
