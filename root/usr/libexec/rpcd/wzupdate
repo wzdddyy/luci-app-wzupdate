@@ -104,7 +104,11 @@ do_status() {
 }
 
 run_bg() {
-	WZU_LIB=0 nohup /usr/libexec/wzupdate/engine.sh "$1" >/dev/null 2>&1 &
+	if command -v nohup >/dev/null 2>&1; then
+		WZU_LIB=0 nohup /usr/libexec/wzupdate/engine.sh "$1" >/dev/null 2>&1 &
+	else
+		WZU_LIB=0 /usr/libexec/wzupdate/engine.sh "$1" >/dev/null 2>&1 &
+	fi
 	printf '{"ok":true}'
 }
 
@@ -113,8 +117,6 @@ case "$1" in
 		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{},"rollback":{}}'
 		;;
 	call)
-		# 参数由 rpcd 以 JSON 写入 stdin，当前操作无需参数
-		read -r _input 2>/dev/null || true
 		case "$2" in
 			status) do_status ;;
 			start) run_bg manual ;;
