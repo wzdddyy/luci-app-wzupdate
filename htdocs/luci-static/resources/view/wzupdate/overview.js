@@ -85,7 +85,7 @@ return view.extend({
 			E('div', { style: 'margin-top:10px' }, [
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.device = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.target = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('系统') ]), E('b', {}, [ 'iStoreOS 25.12 / ' + _('内核') + ' 6.12' ]) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('系统') ]), r.system = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('回退备份') ]), r.rollback = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('运行时长') ]), r.uptime = E('b') ])
 			]),
@@ -220,6 +220,7 @@ return view.extend({
 		r.localVer.appendChild(E('small', {}, [ _('编译时间') ]));
 		r.device.textContent = local.device || '—';
 		r.target.textContent = local.firmware === 'nowifi' ? _('无 WiFi 版') : _('WiFi 版');
+		r.system.textContent = (local.release || 'iStoreOS') + ' / ' + _('内核') + ' ' + (local.kernel || '—');
 		r.uptime.textContent = local.uptime || '—';
 		r.rollback.textContent = pending
 			? (pending.running ? _('保留上一版本，可回退') : _('保留当前版本，可撤回本次更新'))
