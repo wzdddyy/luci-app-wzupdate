@@ -154,15 +154,39 @@ ab_supported() {
 	[ -n "$(part_dev 'rootfs_1')" ]
 }
 
+read_byte() {
+	local cnt ch
+	cnt=$(dd if="$1" bs=1 skip="$2" count=1 2>/dev/null | wc -c)
+	[ "$cnt" = "1" ] || return 1
+	ch=$(dd if="$1" bs=1 skip="$2" count=1 2>/dev/null)
+	case "$ch" in
+		'') printf '0' ;;
+		"'") printf '39' ;;
+		'\') printf '92' ;;
+		*) printf '%d' "'$ch" ;;
+	esac
+}
+
+read_uint() {
+	local i=0 b val=0 mul=1
+	while [ "$i" -lt "$3" ]; do
+		b=$(read_byte "$1" $(( $2 + i ))) || return 1
+		val=$(( val + b * mul ))
+		mul=$(( mul * 256 ))
+		i=$(( i + 1 ))
+	done
+	printf '%s' "$val"
+}
+
 current_slot() {
 	local cfg a b
-	cfg=$(part_dev '0:BOOTCONFIG') || { printf '0'; return 0; }
-	a=$(od -An -tu1 -j 128 -N 1 "$cfg" 2>/dev/null | tr -d ' \n')
-	b=$(od -An -tu1 -j 148 -N 1 "$cfg" 2>/dev/null | tr -d ' \n')
+	cfg=$(part_dev '0:BOOTCONFIG') || return 1
+	a=$(read_byte "$cfg" 128) || return 1
+	b=$(read_byte "$cfg" 148) || return 1
 	case "$a$b" in
 		00) printf '0' ;;
 		11) printf '1' ;;
-		*) printf '%s' "${b:-0}" ;;
+		*) printf '%s' "$b" ;;
 	esac
 }
 
@@ -477,8 +501,8 @@ is_squashfs_at() {
 	[ "$(dd if="$file" bs=1 skip="$off" count=4 2>/dev/null)" = "hsqs" ] || return 1
 	bs_off=$((off + 12))
 	maj_off=$((off + 28))
-	bs=$(od -An -tu4 -j "$bs_off" -N 4 "$file" 2>/dev/null | tr -d ' \n')
-	maj=$(od -An -tu2 -j "$maj_off" -N 2 "$file" 2>/dev/null | tr -d ' \n')
+	bs=$(read_uint "$file" "$bs_off" 4) || return 1
+	maj=$(read_uint "$file" "$maj_off" 2) || return 1
 	case "$bs" in
 		4096|8192|16384|32768|65536|131072|262144|524288|1048576) ;;
 		*) return 1 ;;
@@ -553,7 +577,11 @@ verify_dev() {
 
 write_image() {
 	local active inactive kname rname kdev rdev ksize fsize rsize ksha rsha skip ver stamp prev
-	active=$(current_slot)
+	active=$(current_slot) || {
+		set_state error 0 '无法读取当前启动槽位'
+		log '无法读取当前启动槽位，已中止写入'
+		return 1
+	}
 	inactive=$((1 - active))
 	kname=$(slot_kern "$inactive")
 	rname=$(slot_root "$inactive")
