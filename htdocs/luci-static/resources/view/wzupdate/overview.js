@@ -12,7 +12,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-27';
+var UI_VERSION = '1.0.0-28';
 
 return view.extend({
 	load: function() {
@@ -253,9 +253,12 @@ return view.extend({
 
 		r.chips.innerHTML = '';
 		if (local.ab) {
+			var keepCfg = settings.keepConfig !== false;
 			r.chips.appendChild(E('span', { 'class': 'wz-chip ok' }, [ _('支持安全回退') ]));
-			r.chips.appendChild(E('span', { 'class': 'wz-chip' }, [ _('更新保留配置') ]));
-			r.chips.appendChild(E('span', { 'class': 'wz-chip' }, [ _('写入前校验固件') ]));
+			r.chips.appendChild(E('span', { 'class': keepCfg ? 'wz-chip ok' : 'wz-chip err' }, [
+				keepCfg ? _('更新保留配置') : _('更新不保留配置')
+			]));
+			r.chips.appendChild(E('span', { 'class': 'wz-chip ok' }, [ _('写入前校验固件') ]));
 		}
 		else {
 			r.chips.appendChild(E('span', { 'class': 'wz-chip err' }, [ _('分区不支持安全更新') ]));
