@@ -13,7 +13,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
 // 与 Makefile 的 PKG_VERSION-PKG_RELEASE 保持一致，升级后强制造型文件重新拉取
-var UI_VERSION = '1.0.0-18';
+var UI_VERSION = '1.0.0-20';
 
 return view.extend({
 	load: function() {
@@ -87,8 +87,9 @@ return view.extend({
 			r.localVer = E('div', { 'class': 'wz-ver' }),
 			E('div', { style: 'margin-top:10px' }, [
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.device = E('b') ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.target = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('系统') ]), r.system = E('b') ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.target = E('b') ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.localKernel = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译日期') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('回退备份') ]), r.rollback = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('运行时长') ]), r.uptime = E('b') ])
 			]),
@@ -105,8 +106,10 @@ return view.extend({
 			]),
 			r.remoteVer = E('div', { 'class': 'wz-ver' }),
 			E('div', { style: 'margin-top:10px' }, [
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('发布标签') ]), r.remoteTag = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.remoteName = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.remoteDevice = E('b') ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('提交') ]), r.remoteCommit = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.remoteKernel = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译日期') ]), r.remoteBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('文件大小') ]), r.remoteSize = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('上次检查') ]), r.checked = E('b') ])
 			]),
@@ -221,11 +224,12 @@ return view.extend({
 
 		// 本地卡
 		r.localVer.innerHTML = '';
-		r.localVer.appendChild(document.createTextNode(local.version || _('未知')));
-		r.localVer.appendChild(E('small', {}, [ _('编译时间') ]));
+		r.localVer.appendChild(document.createTextNode(local.release || 'iStoreOS'));
 		r.device.textContent = local.device || '—';
-		r.target.textContent = local.firmware === 'nowifi' ? _('无 WiFi 版') : _('WiFi 版');
-		r.system.textContent = (local.release || 'iStoreOS') + ' / ' + _('内核') + ' ' + (local.kernel || '—');
+		r.target.textContent = (local.release || 'iStoreOS').split(' ')[0] + ' / ' +
+			(local.firmware === 'nowifi' ? _('无 WiFi 版') : _('WiFi 版'));
+		r.localKernel.textContent = local.kernel || '—';
+		r.localBuild.textContent = this._stamp(local.version) || '—';
 		r.uptime.textContent = local.uptime || '—';
 		r.rollback.textContent = pending
 			? (pending.running ? _('保留上一版本，可回退') : _('保留当前版本，可撤回本次更新'))
@@ -249,10 +253,18 @@ return view.extend({
 		// 在线卡
 		var hasRemote = !!remote;
 		r.remoteVer.innerHTML = '';
-		r.remoteVer.appendChild(document.createTextNode(hasRemote && remote.version ? remote.version : (local.ab ? _('未检查') : _('不可用'))));
+		r.remoteVer.appendChild(document.createTextNode(
+			hasRemote && remote.branch
+				? remote.branch.replace(/^istoreos-/, 'iStoreOS ')
+				: (hasRemote && remote.version ? this._stamp(remote.version) : (local.ab ? _('未检查') : _('不可用')))
+		));
 		r.remoteVer.appendChild(E('small', {}, [ _('最新编译版本') ]));
-		r.remoteTag.textContent = hasRemote && remote.tag ? remote.tag : '—';
-		r.remoteName.textContent = hasRemote && remote.name ? remote.name : (local.target || '—');
+		r.remoteDevice.textContent = local.device || '—';
+		r.remoteCommit.textContent = hasRemote && remote.commit ? remote.commit : '—';
+		r.remoteKernel.textContent = hasRemote && remote.kernel ? remote.kernel : '—';
+		r.remoteBuild.textContent = hasRemote
+			? (remote.build || this._stamp(remote.version) || '—')
+			: '—';
 		r.remoteSize.textContent = hasRemote && remote.size > 0 ? this._size(remote.size) : '—';
 		r.checked.textContent = hasRemote && remote.checked ? remote.checked : '—';
 		r.imageWarn.style.display = (settings.image === 'nowifi') ? '' : 'none';
@@ -449,6 +461,11 @@ return view.extend({
 		if (state === 'failed')
 			return { index: phase === 'verifying' ? 2 : (phase === 'writing' ? 4 : -1) };
 		return { index: -1 };
+	},
+
+	// 2026-11-06 01:00 -> 2026.11.06_01.00
+	_stamp: function(value) {
+		return (value || '').replace(/-/g, '.').replace(/:/g, '.').replace(' ', '_');
 	},
 
 	_size: function(bytes) {
