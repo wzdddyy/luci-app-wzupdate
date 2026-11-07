@@ -12,8 +12,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-// 与 Makefile 的 PKG_VERSION-PKG_RELEASE 保持一致，升级后强制造型文件重新拉取
-var UI_VERSION = '1.0.0-21';
+var UI_VERSION = '1.0.0-24';
 
 return view.extend({
 	load: function() {
@@ -37,7 +36,7 @@ return view.extend({
 			E('div', { 'class': 'wz-head' }, [
 				E('div', {}, [
 					E('h2', { 'class': 'wz-title' }, [ _('在线更新') ]),
-					E('div', { 'class': 'wz-sub' }, [ _('安全升级：下载 → 校验 → 写入备份分区 → 手动重启生效，更新后可回退') ])
+					E('div', { 'class': 'wz-sub' }, [ _('wzdddyy/iStoreOS-NN6000固件在线更新') ])
 				]),
 				E('div', { 'class': 'wz-actions' }, [
 					this._refs.check = E('button', {
@@ -155,7 +154,6 @@ return view.extend({
 
 		r.enabled = E('input', {
 			type: 'checkbox',
-			// LuCI 的 E() 用 setAttribute 设置属性，布尔 false 也会选中，需用 ''/null 表示勾选状态
 			checked: (uci.get(s, 'settings', 'enabled') === '1') ? '' : null,
 			'change': function() { self._queueSave(); }
 		});
@@ -222,7 +220,6 @@ return view.extend({
 		var percent = parseInt(prog.percent, 10) || 0;
 		var state = this._deriveState(st);
 
-		// 本地卡
 		r.localVer.innerHTML = '';
 		r.localVer.appendChild(document.createTextNode(local.release || 'iStoreOS'));
 		r.device.textContent = local.device || '—';
@@ -250,7 +247,6 @@ return view.extend({
 			r.chips.appendChild(E('span', { 'class': 'wz-chip err' }, [ _('在线更新已禁用') ]));
 		}
 
-		// 在线卡
 		var hasRemote = !!remote;
 		r.remoteVer.innerHTML = '';
 		r.remoteVer.appendChild(document.createTextNode(
@@ -258,7 +254,6 @@ return view.extend({
 				? remote.branch.replace(/^istoreos-/, 'iStoreOS ')
 				: (hasRemote && remote.version ? this._stamp(remote.version) : (local.ab ? _('未检查') : _('不可用')))
 		));
-		r.remoteVer.appendChild(E('small', {}, [ _('最新编译版本') ]));
 		r.remoteDevice.textContent = local.device || '—';
 		r.remoteCommit.textContent = hasRemote && remote.commit ? remote.commit : '—';
 		r.remoteKernel.textContent = hasRemote && remote.kernel ? remote.kernel : '—';
@@ -291,7 +286,6 @@ return view.extend({
 		notes.push(_('写入完成并校验通过后，需要手动重启才会切换到新版本。'));
 		notes.forEach(function(n) { r.notes.appendChild(E('li', {}, [ n ])); });
 
-		// 状态徽标
 		var badge = { text: _('空闲'), kind: '' };
 		if (state === 'unsupported')
 			badge = { text: _('不支持在线更新'), kind: 'err' };
@@ -313,7 +307,6 @@ return view.extend({
 		r.remoteBadge.appendChild(E('i', { 'class': 'wz-dot' }));
 		r.remoteBadge.appendChild(document.createTextNode(badge.text));
 
-		// 进度
 		var stage = this._stageOf(state, phase, percent);
 		var steps = r.stepper.querySelectorAll('.wz-step');
 		for (var i = 0; i < steps.length; i++) {
@@ -342,12 +335,10 @@ return view.extend({
 
 		r.progressExtra.textContent = prog.message || '—';
 
-		// 日志
 		var logs = st.log || [];
 		r.log.textContent = logs.length ? logs.join('\n') : _('暂无日志');
 		r.log.scrollTop = r.log.scrollHeight;
 
-		// 按钮
 		var busy = (state === 'busy');
 		var canUpdate = !!(remote && remote.newer && !pending && local.ab && state !== 'busy');
 		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
@@ -365,7 +356,6 @@ return view.extend({
 
 	},
 
-	// 不用 LuCI poll，避免顶栏出现「刷新」轮询指示器；离开页面后自动停止
 	_startPolling: function() {
 		var self = this;
 
@@ -406,7 +396,6 @@ return view.extend({
 			};
 		};
 
-		// 主题背景可能只画在内容区，body 本身是 transparent，逐个探针取第一个不透明的底色
 		var probes = [
 			document.querySelector('.main-right'),
 			document.getElementById('maincontent'),
@@ -463,7 +452,6 @@ return view.extend({
 		return { index: -1 };
 	},
 
-	// 2026-11-06 01:00 -> 2026.11.06_01.00
 	_stamp: function(value) {
 		return (value || '').replace(/-/g, '.').replace(/:/g, '.').replace(' ', '_');
 	},
@@ -502,7 +490,6 @@ return view.extend({
 		}).then(done, done);
 	},
 
-	// 等待后端检查结束：先观察到 checking 阶段，再等到它退出
 	_waitCheck: function() {
 		var before = this._remoteChecked;
 		var start = Date.now();
@@ -516,12 +503,10 @@ return view.extend({
 					if (phase === 'checking')
 						seen = true;
 
-					// 检查结束：观察到 checking 退出，或在线版本时间戳已刷新
 					if ((seen && phase !== 'checking') || phase === 'error' ||
 						(!seen && s && s.remote && s.remote.checked && s.remote.checked !== before))
 						return resolve();
 
-					// 后端未启动或异常卡住时兜底，避免按钮一直不可用
 					if (Date.now() - start > 120000 || (!seen && Date.now() - start > 10000))
 						return resolve();
 
@@ -580,11 +565,9 @@ return view.extend({
 		return uci.save().then(function() {
 			return uci.apply();
 		}).then(function() {
-			// 提交完成，刷新顶栏的「未保存的配置」提示
 			if (ui.changes && typeof ui.changes.init === 'function')
 				ui.changes.init();
 
-			// 回读后端配置，确认确实写入成功
 			return L.resolveDefault(callStatus(), null).then(function(st) {
 				if (!st || !st.settings)
 					throw new Error('status failed');
