@@ -13,7 +13,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
 // 与 Makefile 的 PKG_VERSION-PKG_RELEASE 保持一致，升级后强制造型文件重新拉取
-var UI_VERSION = '1.0.0-17';
+var UI_VERSION = '1.0.0-18';
 
 return view.extend({
 	load: function() {
@@ -563,6 +563,10 @@ return view.extend({
 		return uci.save().then(function() {
 			return uci.apply();
 		}).then(function() {
+			// 提交完成，刷新顶栏的「未保存的配置」提示
+			if (ui.changes && typeof ui.changes.init === 'function')
+				ui.changes.init();
+
 			// 回读后端配置，确认确实写入成功
 			return L.resolveDefault(callStatus(), null).then(function(st) {
 				if (!st || !st.settings)
