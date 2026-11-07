@@ -12,7 +12,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-29';
+var UI_VERSION = '1.0.0-30';
 
 return view.extend({
 	load: function() {
@@ -358,7 +358,7 @@ return view.extend({
 		r.log.scrollTop = r.log.scrollHeight;
 
 		var busy = (state === 'busy');
-		var canUpdate = !!(remote && remote.newer && !pending && local.ab && state !== 'busy');
+		var canUpdate = !!(remote && remote.newer && (!pending || pending.running) && local.ab && state !== 'busy');
 		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
 		r.check.dataset.mode = canUpdate ? 'update' : 'check';
 		r.check.disabled = busy || state === 'pending';
@@ -439,12 +439,14 @@ return view.extend({
 		var phase = prog.phase || 'idle';
 		if (!local.ab)
 			return 'unsupported';
+		if (st.pending && !st.pending.running)
+			return 'pending';
 		if (phase === 'error')
 			return 'failed';
-		if (st.pending)
-			return st.pending.running ? 'running' : 'pending';
 		if (phase === 'checking' || phase === 'downloading' || phase === 'verifying' || phase === 'writing')
 			return 'busy';
+		if (st.pending)
+			return 'running';
 		if (st.remote && st.remote.newer)
 			return 'available';
 		return 'latest';
