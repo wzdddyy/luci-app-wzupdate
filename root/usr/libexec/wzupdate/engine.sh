@@ -93,8 +93,25 @@ local_version() {
 	printf '%s' "$v"
 }
 
+pending_state() {
+	local pk="" ck=""
+	[ -f "$PENDING" ] || { printf 'none'; return 0; }
+	pk=$(version_key "$(kv_read "$PENDING" version '')")
+	ck=$(version_key "$(local_version)")
+	[ -n "$pk" ] || { printf 'pending'; return 0; }
+	if [ -n "$ck" ] && [ "$pk" = "$ck" ]; then
+		printf 'applied'
+	else
+		printf 'pending'
+	fi
+}
+
 norm_stamp() {
 	printf '%s' "$1" | tr -d '\r\n' | tr ' -' '._'
+}
+
+version_key() {
+	printf '%s' "$1" | tr -cd '0-9'
 }
 
 firmware_type() {
@@ -190,25 +207,37 @@ current_slot() {
 	cfg=$(part_dev '0:BOOTCONFIG') || return 1
 	a=$(read_byte "$cfg" 128) || return 1
 	b=$(read_byte "$cfg" 148) || return 1
-	case "$a$b" in
-		00) printf '0' ;;
-		11) printf '1' ;;
-		*) printf '%s' "$b" ;;
+	case "$a:$b" in
+		0:0) printf '0' ;;
+		1:1) printf '1' ;;
+		*) return 1 ;;
 	esac
 }
 
 slot_kern() {
-	if [ "$1" = "1" ]; then printf '0:HLOS_1'; else printf '0:HLOS'; fi
+	case "$1" in
+		0) printf '0:HLOS' ;;
+		1) printf '0:HLOS_1' ;;
+		*) return 1 ;;
+	esac
 }
 
 slot_root() {
-	if [ "$1" = "1" ]; then printf 'rootfs_1'; else printf 'rootfs'; fi
+	case "$1" in
+		0) printf 'rootfs' ;;
+		1) printf 'rootfs_1' ;;
+		*) return 1 ;;
+	esac
 }
 
 set_slot() {
 	local cfg val
-	cfg=$(part_dev '0:BOOTCONFIG') || return 1
 	val=$1
+	case "$val" in
+		0|1) ;;
+		*) return 1 ;;
+	esac
+	cfg=$(part_dev '0:BOOTCONFIG') || return 1
 	printf "\\$(printf '%03o' "$val")" | dd of="$cfg" bs=1 seek=128 conv=notrunc 2>/dev/null || return 1
 	printf "\\$(printf '%03o' "$val")" | dd of="$cfg" bs=1 seek=148 conv=notrunc 2>/dev/null || return 1
 	sync
@@ -248,7 +277,7 @@ http_get() {
 
 
 check_update() {
-	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad as body commit rkernel branch rbuild
+	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_key remote_key sha sha_url sha_idx digest names_cnt digest_cnt i an au ad as body commit rkernel branch rbuild
 	repo=$(uci_get repo "$REPO_DEFAULT")
 	api="https://api.github.com/repos/$repo/releases/latest?ts=$(date +%s)-$$"
 	json="$BASE/release.json"
@@ -368,12 +397,13 @@ check_update() {
 
 	remote_ver=$(printf '%s' "$stamp" | sed 's/_/ /; s/\./-/g')
 	cur_ver=$(local_version)
-	local_stamp=$(norm_stamp "$cur_ver")
-	remote_stamp=$(norm_stamp "$stamp")
+	local_key=$(version_key "$cur_ver")
+	remote_key=$(version_key "$stamp")
 	newer=0
-	if [ "$remote_stamp" != "$local_stamp" ]; then
-		first=$(printf '%s\n%s\n' "$remote_stamp" "$local_stamp" | sort | head -n1)
-		[ "$first" = "$local_stamp" ] && newer=1
+	if [ -n "$remote_key" ]; then
+		if [ -z "$local_key" ] || [ "$remote_key" -gt "$local_key" ] 2>/dev/null; then
+			newer=1
+		fi
 	fi
 
 	kv_write "$REMOTE" REMOTE_TAG "$tag"
@@ -590,7 +620,7 @@ write_image() {
 	rname=$(slot_root "$inactive")
 	kdev=$(part_dev "$kname")
 	rdev=$(part_dev "$rname")
-	if [ -f "$PENDING" ]; then
+	if [ "$(pending_state)" = "pending" ]; then
 		set_state error 0 '已有待重启的更新'
 		log '已有待重启的更新，请先重启或撤回'
 		return 1
@@ -763,7 +793,7 @@ run_update_only() {
 run_auto() {
 	[ "$(uci_get enabled 0)" = "1" ] || return 0
 	[ "$(uci_get auto 0)" = "1" ] || return 0
-	[ -f "$PENDING" ] && return 0
+	[ "$(pending_state)" = "pending" ] && return 0
 	lock_take || return 0
 	: >"$LOG"
 	log '自动检查更新'
@@ -784,15 +814,15 @@ run_auto() {
 }
 
 cancel_update() {
-	local pend_ver prev cur
+	local pend_key cur_key prev
 	if [ ! -f "$PENDING" ]; then
 		set_state idle 0 '没有待处理的更新'
 		log '没有待处理的更新'
 		return 0
 	fi
-	pend_ver=$(kv_read "$PENDING" version '')
-	cur=$(local_version)
-	if [ "$pend_ver" = "$cur" ]; then
+	pend_key=$(version_key "$(kv_read "$PENDING" version '')")
+	cur_key=$(version_key "$(local_version)")
+	if [ -n "$pend_key" ] && [ "$pend_key" = "$cur_key" ]; then
 		prev=$(kv_read "$PENDING" prev_slot 0)
 		if ! set_slot "$prev"; then
 			log '回退失败：无法切换启动分区'
@@ -828,13 +858,13 @@ apply_update() {
 		return 1
 	fi
 	slot=$(kv_read "$PENDING" slot 1)
-	if [ "$(uci_get keep_config 1)" = "0" ]; then
-		log '更新不保留配置：清除 overlay 数据'
-		wipe_overlay || log '清除配置失败，本次仍保留配置'
-	fi
 	if ! set_slot "$slot"; then
 		log '切换启动分区失败'
 		return 1
+	fi
+	if [ "$(uci_get keep_config 1)" = "0" ]; then
+		log '更新不保留配置：清除 overlay 数据'
+		wipe_overlay || log '清除配置失败，本次仍保留配置'
 	fi
 	log "已切换到槽位 $slot，即将重启"
 	(sleep 2; reboot) >/dev/null 2>&1 &
