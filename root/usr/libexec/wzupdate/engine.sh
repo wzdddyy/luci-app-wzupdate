@@ -235,7 +235,7 @@ http_get() {
 # ---------------- 检查更新 ----------------
 
 check_update() {
-	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad
+	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad body commit rkernel branch rbuild
 	repo=$(uci_get repo "$REPO_DEFAULT")
 	# 带随机参数避免镜像缓存到「固件尚未上传完成」的旧响应
 	api="https://api.github.com/repos/$repo/releases/latest?ts=$(date +%s)-$$"
@@ -338,7 +338,14 @@ check_update() {
 	fi
 	case "$sha" in ''|*[!0-9a-f]*) sha='' ;; esac
 
-	notes=$(jsonfilter -i "$json" -e '@.body' 2>/dev/null | head -n1 | cut -c1-400)
+	body=$(jsonfilter -i "$json" -e '@.body' 2>/dev/null)
+	notes=$(printf '%s\n' "$body" | head -n1 | cut -c1-400)
+	# 从发布说明中提取版本信息（- **内核版本**: 6.12.112 等）
+	commit=$(printf '%s\n' "$body" | grep -F '提交' | grep -oE '[0-9a-f]{7,40}' | head -n1)
+	rkernel=$(printf '%s\n' "$body" | sed -n 's/.*内核版本[^:：]*[:：] *//p' | head -n1 | tr -d '\r')
+	branch=$(printf '%s\n' "$body" | sed -n 's/.*iStoreOS 分支[^:：]*[:：] *//p' | head -n1 | tr -d '\r')
+	rbuild=$(printf '%s\n' "$body" | sed -n 's/.*编译日期[^:：]*[:：] *//p' | head -n1 | tr -d '\r')
+	rbuild=$(norm_stamp "$rbuild")
 	checked=$(date '+%H:%M')
 
 	remote_ver=$(printf '%s' "$stamp" | sed 's/_/ /; s/\./-/g')
@@ -360,6 +367,10 @@ check_update() {
 	kv_write "$REMOTE" REMOTE_SHA "$sha"
 	kv_write "$REMOTE" REMOTE_NEWER "$newer"
 	kv_write "$REMOTE" REMOTE_NOTE "$notes"
+	kv_write "$REMOTE" REMOTE_COMMIT "$commit"
+	kv_write "$REMOTE" REMOTE_KERNEL "$rkernel"
+	kv_write "$REMOTE" REMOTE_BRANCH "$branch"
+	kv_write "$REMOTE" REMOTE_BUILD "$rbuild"
 	kv_write "$REMOTE" CHECKED_AT "$checked"
 
 	log "在线版本：$remote_ver（$tag）"
