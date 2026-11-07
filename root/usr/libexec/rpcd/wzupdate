@@ -4,7 +4,7 @@ WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh
 do_status() {
 	local lv board model target ab phase pct msg newer checked
 	local rver rtag rname rsize rnote rcommit rkernel rbranch rbuild
-	local pslot pver pprev ptime prun
+	local pslot pver pprev ptime prun pkey lkey
 	local enabled auto image channel keep_config uptime up days hours
 	local remote_json pending_json log_json en_bool auto_bool keep_bool
 	local e_lv e_model e_board e_target e_uptime e_phase e_msg e_image e_channel
@@ -84,7 +84,9 @@ do_status() {
 		pprev=$(kv_read "$PENDING" prev_version '')
 		ptime=$(kv_read "$PENDING" time '')
 		prun=false
-		[ "$pver" = "$lv" ] && prun=true
+		pkey=$(version_key "$pver")
+		lkey=$(version_key "$lv")
+		[ -n "$pkey" ] && [ "$pkey" = "$lkey" ] && prun=true
 		case "$pslot" in ''|*[!0-9]*) pslot=1 ;; esac
 		pver=$(json_esc "$pver")
 		pprev=$(json_esc "$pprev")
