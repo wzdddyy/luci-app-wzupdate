@@ -741,8 +741,10 @@ run_auto() {
 			set_state error 0 '分区不支持在线更新'
 			log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
 		else
-			log '自动更新：开始下载'
-			download_image && prepare_image && write_image
+			log '自动更新：开始下载并校验'
+			if download_image && prepare_image; then
+				set_state idle 0 '固件已下载并校验，等待手动写入'
+			fi
 		fi
 	else
 		[ "$(get_state phase)" = "error" ] || set_state idle 0 '已是最新版本'
@@ -778,6 +780,16 @@ cancel_update() {
 	return 0
 }
 
+wipe_overlay() {
+	if command -v factoryreset >/dev/null 2>&1; then
+		factoryreset -y >/dev/null 2>&1 && return 0
+	fi
+	if command -v jffs2reset >/dev/null 2>&1; then
+		jffs2reset -y >/dev/null 2>&1 && return 0
+	fi
+	return 1
+}
+
 apply_update() {
 	local slot
 	if [ ! -f "$PENDING" ]; then
@@ -785,6 +797,10 @@ apply_update() {
 		return 1
 	fi
 	slot=$(kv_read "$PENDING" slot 1)
+	if [ "$(uci_get keep_config 1)" = "0" ]; then
+		log '更新不保留配置：清除 overlay 数据'
+		wipe_overlay || log '清除配置失败，本次仍保留配置'
+	fi
 	if ! set_slot "$slot"; then
 		log '切换启动分区失败'
 		return 1
