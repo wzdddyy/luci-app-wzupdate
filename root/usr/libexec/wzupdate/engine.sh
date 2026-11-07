@@ -54,6 +54,13 @@ json_esc() {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\r\t' '   '
 }
 
+file_size() {
+	local n=""
+	n=$(wc -c <"$1" 2>/dev/null | tr -d ' \n')
+	[ -n "$n" ] || n=0
+	printf '%s' "$n"
+}
+
 
 board_id() {
 	local b="" m=""
@@ -411,8 +418,7 @@ download_image() {
 	kv_write "$BASE/partial" URL "$url"
 	kv_write "$BASE/partial" SIZE "$expected"
 
-	size=$(stat -c %s "$FW" 2>/dev/null)
-	[ -n "$size" ] || size=0
+	size=$(file_size "$FW")
 	if [ "$expected" -gt 0 ] 2>/dev/null && [ "$size" -lt "$expected" ]; then
 		local avail need
 		avail=$(df -k /tmp 2>/dev/null | awk 'NR==2 {print $4}')
@@ -447,8 +453,7 @@ download_image() {
 	esac
 
 	for c in $cands; do
-		size=$(stat -c %s "$FW" 2>/dev/null)
-		[ -n "$size" ] || size=0
+		size=$(file_size "$FW")
 		if [ "$size" -gt 0 ]; then
 			set_state downloading 6 "正在续传（已下载 $((size / 1048576)) MB）"
 			log "断点续传：从 $((size / 1048576)) MB 继续，下载：$c"
@@ -460,8 +465,7 @@ download_image() {
 		fi
 		pid=$!
 		while kill -0 "$pid" 2>/dev/null; do
-			size=$(stat -c %s "$FW" 2>/dev/null)
-			[ -n "$size" ] || size=0
+			size=$(file_size "$FW")
 			if [ "$expected" -gt 0 ] 2>/dev/null; then
 				pct=$(( 6 + size * 54 / expected ))
 				[ "$pct" -gt 60 ] && pct=60
@@ -474,7 +478,7 @@ download_image() {
 		wait "$pid"
 		rc=$?
 		if [ "$rc" = "0" ] && [ -s "$FW" ]; then
-			size=$(stat -c %s "$FW" 2>/dev/null)
+			size=$(file_size "$FW")
 			if [ "$expected" -gt 0 ] 2>/dev/null && [ "$size" != "$expected" ]; then
 				log "下载大小不符（$size / $expected），清除分片重试"
 				rm -f "$FW"
@@ -514,8 +518,7 @@ is_squashfs_at() {
 prepare_image() {
 	local size off sha cand expect_sha
 	set_state verifying 63 '正在校验固件'
-	size=$(stat -c %s "$FW" 2>/dev/null)
-	[ -n "$size" ] || size=0
+	size=$(file_size "$FW")
 	if [ "$size" -lt 1048576 ]; then
 		set_state error 0 '固件文件不完整'
 		log '固件文件不完整'
