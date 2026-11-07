@@ -235,7 +235,7 @@ http_get() {
 # ---------------- 检查更新 ----------------
 
 check_update() {
-	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad body commit rkernel branch rbuild
+	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad as body commit rkernel branch rbuild
 	repo=$(uci_get repo "$REPO_DEFAULT")
 	# 带随机参数避免镜像缓存到「固件尚未上传完成」的旧响应
 	api="https://api.github.com/repos/$repo/releases/latest?ts=$(date +%s)-$$"
@@ -276,6 +276,7 @@ check_update() {
 	jsonfilter -i "$json" -e '@.assets[*].name' >"$BASE/assets.name" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].browser_download_url' >"$BASE/assets.url" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].digest' >"$BASE/assets.digest" 2>/dev/null
+	jsonfilter -i "$json" -e '@.assets[*].size' >"$BASE/assets.size" 2>/dev/null
 
 	# 部分 jsonfilter 版本不支持 [*] 通配，回退为按索引逐个提取
 	if [ ! -s "$BASE/assets.name" ]; then
@@ -283,14 +284,17 @@ check_update() {
 		: >"$BASE/assets.name"
 		: >"$BASE/assets.url"
 		: >"$BASE/assets.digest"
+		: >"$BASE/assets.size"
 		while [ "$i" -lt 50 ]; do
 			an=$(jsonfilter -i "$json" -e "@.assets[$i].name" 2>/dev/null)
 			[ -n "$an" ] || break
 			au=$(jsonfilter -i "$json" -e "@.assets[$i].browser_download_url" 2>/dev/null)
 			ad=$(jsonfilter -i "$json" -e "@.assets[$i].digest" 2>/dev/null)
+			as=$(jsonfilter -i "$json" -e "@.assets[$i].size" 2>/dev/null)
 			printf '%s\n' "$an" >>"$BASE/assets.name"
 			printf '%s\n' "$au" >>"$BASE/assets.url"
 			printf '%s\n' "$ad" >>"$BASE/assets.digest"
+			printf '%s\n' "$as" >>"$BASE/assets.size"
 			i=$((i + 1))
 		done
 	fi
@@ -312,10 +316,16 @@ check_update() {
 		return 1
 	fi
 
-	size=$(curl -fsIL --max-time 30 "$url" 2>/dev/null | tr -d '\r')
-	size=$(printf '%s' "$size" | sed -n 's/^[Cc]ontent-[Ll]ength: *//p')
-	size=$(printf '%s' "$size" | tail -n1)
+	# 优先用 GitHub API 返回的资产大小，避免 HEAD 直连下载域名失败
+	size=""
+	[ -n "$line" ] && size=$(sed -n "${line}p" "$BASE/assets.size" 2>/dev/null)
 	case "$size" in ''|*[!0-9]*) size=0 ;; esac
+	if [ "$size" = "0" ]; then
+		size=$(curl -fsIL --max-time 30 "$url" 2>/dev/null | tr -d '\r')
+		size=$(printf '%s' "$size" | sed -n 's/^[Cc]ontent-[Ll]ength: *//p')
+		size=$(printf '%s' "$size" | tail -n1)
+		case "$size" in ''|*[!0-9]*) size=0 ;; esac
+	fi
 
 	# 优先用 GitHub API 提供的 sha256 digest，其次找发布里的 sha256sums
 	sha=""
