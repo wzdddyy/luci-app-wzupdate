@@ -12,7 +12,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-28';
+var UI_VERSION = '1.0.0-29';
 
 return view.extend({
 	load: function() {
