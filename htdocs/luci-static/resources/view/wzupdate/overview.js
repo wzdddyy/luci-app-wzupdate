@@ -88,7 +88,7 @@ return view.extend({
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.device = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.target = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.localKernel = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译日期') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件版本') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('回退备份') ]), r.rollback = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('运行时长') ]), r.uptime = E('b') ])
 			]),
@@ -108,7 +108,7 @@ return view.extend({
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.remoteDevice = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('提交') ]), r.remoteCommit = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.remoteKernel = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译日期') ]), r.remoteBuild = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件版本') ]), r.remoteBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('文件大小') ]), r.remoteSize = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('上次检查') ]), r.checked = E('b') ])
 			]),
