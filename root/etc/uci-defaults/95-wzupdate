@@ -1,5 +1,4 @@
 #!/bin/sh
-# 首次安装后的默认配置补齐
 if ! uci -q get wzupdate.settings >/dev/null 2>&1; then
 	uci -q set wzupdate.settings=wzupdate
 	uci -q set wzupdate.settings.enabled='0'
