@@ -1,14 +1,4 @@
 #!/bin/sh
-# wzupdate - Link NN6000 固件在线更新引擎
-#
-# 用法（脚本方式）：
-#   engine.sh manual   检查并更新（发现新版本时下载、校验、写入备份分区）
-#   engine.sh check    仅检查新版本
-#   engine.sh auto     自动模式（受 UCI enabled/auto 控制）
-#   engine.sh cancel   撤回待重启的更新 / 回退到上一版本并重启
-#   engine.sh apply    切换启动分区并重启
-#
-# 被 rpcd 以 WZU_LIB=1 方式 source 时只加载函数。
 
 BASE=/tmp/wzupdate
 STATE=$BASE/state
@@ -24,7 +14,6 @@ MIRROR_DEFAULT='https://ghfast.top/,https://gh-proxy.com/'
 
 mkdir -p "$BASE" /etc/wzupdate 2>/dev/null
 
-# ---------------- 基础工具 ----------------
 
 log() {
 	printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"
@@ -65,17 +54,14 @@ json_esc() {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\r\t' '   '
 }
 
-# ---------------- 设备与分区 ----------------
 
 board_id() {
 	local b="" m=""
 	[ -r /tmp/sysinfo/board_name ] && b=$(tr -d '\r\n ' </tmp/sysinfo/board_name 2>/dev/null)
-	# 兜底 1：设备树 compatible 列表
 	if [ -z "$b" ] && [ -r /proc/device-tree/compatible ]; then
 		b=$(tr '\000' '\n' </proc/device-tree/compatible 2>/dev/null |
 			grep -E '^link,nn6000-v[12]$' | head -n1)
 	fi
-	# 兜底 2：sysinfo 型号名
 	if [ -z "$b" ] && [ -r /tmp/sysinfo/model ]; then
 		m=$(tr -d '\r\n' </tmp/sysinfo/model 2>/dev/null)
 		case "$m" in
@@ -100,7 +86,6 @@ local_version() {
 	printf '%s' "$v"
 }
 
-# 统一时间戳格式：2026-11-06 15:30 -> 2026.11.06_15.30
 norm_stamp() {
 	printf '%s' "$1" | tr -d '\r\n' | tr ' -' '._'
 }
@@ -133,7 +118,6 @@ part_dev() {
 		readlink -f "$p"
 		return 0
 	fi
-	# OpenWrt 没有 udev，/dev/disk/by-partlabel 通常不存在，改读 sysfs 的 PARTNAME
 	for p in /sys/class/block/*; do
 		[ -r "$p/uevent" ] || continue
 		label=$(sed -n 's/^PARTNAME=//p' "$p/uevent" 2>/dev/null | head -n1)
@@ -200,7 +184,6 @@ set_slot() {
 	return 0
 }
 
-# ---------------- 网络 ----------------
 
 curl_try() {
 	curl -fsSL --connect-timeout 10 --max-time 3600 --retry 1 -o "$2" "$1" 2>/dev/null
@@ -232,12 +215,10 @@ http_get() {
 	return 1
 }
 
-# ---------------- 检查更新 ----------------
 
 check_update() {
 	local repo api json tag stamp target name url size notes line checked newer remote_ver cur_ver local_stamp remote_stamp first sha sha_url sha_idx digest names_cnt digest_cnt i an au ad as body commit rkernel branch rbuild
 	repo=$(uci_get repo "$REPO_DEFAULT")
-	# 带随机参数避免镜像缓存到「固件尚未上传完成」的旧响应
 	api="https://api.github.com/repos/$repo/releases/latest?ts=$(date +%s)-$$"
 	json="$BASE/release.json"
 
@@ -278,7 +259,6 @@ check_update() {
 	jsonfilter -i "$json" -e '@.assets[*].digest' >"$BASE/assets.digest" 2>/dev/null
 	jsonfilter -i "$json" -e '@.assets[*].size' >"$BASE/assets.size" 2>/dev/null
 
-	# 部分 jsonfilter 版本不支持 [*] 通配，回退为按索引逐个提取
 	if [ ! -s "$BASE/assets.name" ]; then
 		i=0
 		: >"$BASE/assets.name"
@@ -316,7 +296,6 @@ check_update() {
 		return 1
 	fi
 
-	# 优先用 GitHub API 返回的资产大小，避免 HEAD 直连下载域名失败
 	size=""
 	[ -n "$line" ] && size=$(sed -n "${line}p" "$BASE/assets.size" 2>/dev/null)
 	case "$size" in ''|*[!0-9]*) size=0 ;; esac
@@ -327,7 +306,6 @@ check_update() {
 		case "$size" in ''|*[!0-9]*) size=0 ;; esac
 	fi
 
-	# 优先用 GitHub API 提供的 sha256 digest，其次找发布里的 sha256sums
 	sha=""
 	names_cnt=$(awk 'END{print NR}' "$BASE/assets.name" 2>/dev/null)
 	digest_cnt=$(awk 'END{print NR}' "$BASE/assets.digest" 2>/dev/null)
@@ -350,7 +328,6 @@ check_update() {
 
 	body=$(jsonfilter -i "$json" -e '@.body' 2>/dev/null)
 	notes=$(printf '%s\n' "$body" | head -n1 | cut -c1-400)
-	# 从发布说明中提取版本信息（- **内核版本**: 6.12.112 等）
 	commit=$(printf '%s\n' "$body" | grep -F '提交' | grep -oE '[0-9a-f]{7,40}' | head -n1)
 	rkernel=$(printf '%s\n' "$body" | sed -n 's/.*内核版本[^:：]*[:：] *//p' | head -n1 | tr -d '\r')
 	branch=$(printf '%s\n' "$body" | sed -n 's/.*iStoreOS 分支[^:：]*[:：] *//p' | head -n1 | tr -d '\r')
@@ -392,7 +369,6 @@ check_update() {
 	return 0
 }
 
-# ---------------- 下载 / 校验 / 写入 ----------------
 
 download_image() {
 	local url expected ch mirrors cands c pid size pct rc part_url part_size
@@ -403,7 +379,6 @@ download_image() {
 
 	[ -n "$url" ] || { set_state error 0 '未找到匹配的固件'; return 1; }
 
-	# 分片只对同一固件有效：换版本或大小不符时丢弃
 	part_url=$(kv_read "$BASE/partial" URL '')
 	part_size=$(kv_read "$BASE/partial" SIZE 0)
 	if [ "$part_url" != "$url" ] || { [ "$expected" -gt 0 ] && [ "$part_size" != "$expected" ]; }; then
@@ -656,7 +631,6 @@ write_image() {
 	return 0
 }
 
-# ---------------- 任务入口 ----------------
 
 lock_take() {
 	local i=0
