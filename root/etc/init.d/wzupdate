@@ -1,5 +1,4 @@
 #!/bin/sh /etc/rc.common
-# wzupdate 自动检查服务
 
 START=95
 STOP=10
