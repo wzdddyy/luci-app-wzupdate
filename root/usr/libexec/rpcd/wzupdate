@@ -1,5 +1,4 @@
 #!/bin/sh
-# rpcd 后端：向 LuCI 提供 wzupdate 状态与操作
 WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh
 
 do_status() {
