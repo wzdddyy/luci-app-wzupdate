@@ -107,6 +107,17 @@ html.dark #wzupdate-page,
 	background: var(--wz-surface-2);
 }
 
+#wzupdate-page .wz-btn:not(.primary):not(.danger) {
+	border-color: var(--wz-brand);
+	background: var(--wz-brand-soft);
+	color: var(--wz-brand-ink);
+}
+
+#wzupdate-page .wz-btn:not(.primary):not(.danger):hover:not(:disabled) {
+	background: var(--wz-brand);
+	color: #fff;
+}
+
 #wzupdate-page .wz-btn:disabled {
 	opacity: .45;
 	cursor: not-allowed;
