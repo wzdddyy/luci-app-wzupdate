@@ -12,7 +12,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-24';
+var UI_VERSION = '1.0.0-27';
 
 return view.extend({
 	load: function() {
@@ -51,7 +51,7 @@ return view.extend({
 					this._refs.reboot = E('button', {
 						'class': 'wz-btn primary',
 						'click': function() { self._reboot(); }
-					}, [ _('重启并更新') ]),
+					}, [ _('重启更新') ]),
 					this._refs.cancel = E('button', {
 						'class': 'wz-btn danger',
 						'click': function() { self._cancel(); }
@@ -177,12 +177,18 @@ return view.extend({
 		]);
 		r.channelSel.value = uci.get(s, 'settings', 'channel') || 'auto';
 
+		r.keepConfig = E('input', {
+			type: 'checkbox',
+			checked: (uci.get(s, 'settings', 'keep_config') !== '0') ? '' : null,
+			'change': function() { self._queueSave(); }
+		});
+
 		return E('div', { 'class': 'wz-card' }, [
 			E('div', { 'class': 'wz-section' }, [ _('更新设置') ]),
 			E('div', { 'class': 'wz-field' }, [
 				E('div', {}, [
 					E('div', { 'class': 'wz-field-label' }, [ _('启用自动更新') ]),
-					E('div', { 'class': 'wz-field-help' }, [ _('每 30 分钟检查一次；发现新版本自动下载、校验并写入备份分区，不会自动重启。修改后立即生效') ])
+					E('div', { 'class': 'wz-field-help' }, [ _('定时发现新版本自动下载并校验固件') ])
 				]),
 				E('div', { 'class': 'wz-field-control' }, [
 					E('label', { 'class': 'wz-switch' }, [ r.enabled, E('span') ])
@@ -201,6 +207,15 @@ return view.extend({
 					E('div', { 'class': 'wz-field-help' }, [ _('直连失败时自动尝试镜像地址；下载中断会从断点续传，写入前校验固件完整性') ])
 				]),
 				E('div', { 'class': 'wz-field-control' }, [ r.channelSel ])
+			]),
+			E('div', { 'class': 'wz-field' }, [
+				E('div', {}, [
+					E('div', { 'class': 'wz-field-label' }, [ _('更新保留配置') ]),
+					E('div', { 'class': 'wz-field-help' }, [ _('默认保留当前配置；关闭后重启更新时会清空配置文件与已安装插件') ])
+				]),
+				E('div', { 'class': 'wz-field-control' }, [
+					E('label', { 'class': 'wz-switch' }, [ r.keepConfig, E('span') ])
+				])
 			])
 		]);
 	},
@@ -349,7 +364,7 @@ return view.extend({
 			r.check.dataset.mode = 'check';
 			r.check.disabled = true;
 		}
-		r.check.style.display = '';
+		r.check.style.display = (state === 'pending') ? 'none' : '';
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
 		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
 		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
@@ -562,6 +577,7 @@ return view.extend({
 		uci.set(s, 'settings', 'auto', want ? '1' : '0');
 		uci.set(s, 'settings', 'image', this._refs.imageSel.value);
 		uci.set(s, 'settings', 'channel', this._refs.channelSel.value);
+		uci.set(s, 'settings', 'keep_config', this._refs.keepConfig.checked ? '1' : '0');
 		return uci.save().then(function() {
 			return uci.apply();
 		}).then(function() {
