@@ -13,7 +13,7 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
 // 与 Makefile 的 PKG_VERSION-PKG_RELEASE 保持一致，升级后强制造型文件重新拉取
-var UI_VERSION = '1.0.0-20';
+var UI_VERSION = '1.0.0-21';
 
 return view.extend({
 	load: function() {
