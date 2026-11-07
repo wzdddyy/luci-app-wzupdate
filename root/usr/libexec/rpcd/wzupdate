@@ -4,7 +4,7 @@ WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh
 
 do_status() {
 	local lv board model target ab phase pct msg newer checked
-	local rver rtag rname rsize rnote
+	local rver rtag rname rsize rnote rcommit rkernel rbranch rbuild
 	local pslot pver pprev ptime prun
 	local enabled auto image channel uptime up days hours
 	local remote_json pending_json log_json en_bool auto_bool
@@ -57,6 +57,10 @@ do_status() {
 		rname=$(kv_read "$REMOTE" REMOTE_NAME '')
 		rsize=$(kv_read "$REMOTE" REMOTE_SIZE 0)
 		rnote=$(kv_read "$REMOTE" REMOTE_NOTE '')
+		rcommit=$(kv_read "$REMOTE" REMOTE_COMMIT '')
+		rkernel=$(kv_read "$REMOTE" REMOTE_KERNEL '')
+		rbranch=$(kv_read "$REMOTE" REMOTE_BRANCH '')
+		rbuild=$(kv_read "$REMOTE" REMOTE_BUILD '')
 		newer=$(kv_read "$REMOTE" REMOTE_NEWER 0)
 		checked=$(kv_read "$REMOTE" CHECKED_AT '')
 		case "$rsize" in ''|*[!0-9]*) rsize=0 ;; esac
@@ -65,9 +69,13 @@ do_status() {
 		rtag=$(json_esc "$rtag")
 		rname=$(json_esc "$rname")
 		rnote=$(json_esc "$rnote")
+		rcommit=$(json_esc "$rcommit")
+		rkernel=$(json_esc "$rkernel")
+		rbranch=$(json_esc "$rbranch")
+		rbuild=$(json_esc "$rbuild")
 		checked=$(json_esc "$checked")
-		remote_json=$(printf '{"version":"%s","tag":"%s","name":"%s","size":%s,"notes":"%s","newer":%s,"checked":"%s"}' \
-			"$rver" "$rtag" "$rname" "$rsize" "$rnote" "$newer" "$checked")
+		remote_json=$(printf '{"version":"%s","tag":"%s","name":"%s","size":%s,"notes":"%s","newer":%s,"checked":"%s","commit":"%s","kernel":"%s","branch":"%s","build":"%s"}' \
+			"$rver" "$rtag" "$rname" "$rsize" "$rnote" "$newer" "$checked" "$rcommit" "$rkernel" "$rbranch" "$rbuild")
 	fi
 
 	pending_json='null'
