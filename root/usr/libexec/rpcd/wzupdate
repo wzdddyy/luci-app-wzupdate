@@ -5,8 +5,8 @@ do_status() {
 	local lv board model target ab phase pct msg newer checked
 	local rver rtag rname rsize rnote rcommit rkernel rbranch rbuild
 	local pslot pver pprev ptime prun
-	local enabled auto image channel uptime up days hours
-	local remote_json pending_json log_json en_bool auto_bool
+	local enabled auto image channel keep_config uptime up days hours
+	local remote_json pending_json log_json en_bool auto_bool keep_bool
 	local e_lv e_model e_board e_target e_uptime e_phase e_msg e_image e_channel
 	local ab_miss labels e_abmiss e_labels
 	local kernel dist_id dist_rel release e_kernel e_release
@@ -101,8 +101,10 @@ do_status() {
 	auto=$(uci_get auto 0)
 	image=$(uci_get image auto)
 	channel=$(uci_get channel auto)
+	keep_config=$(uci_get keep_config 1)
 	[ "$enabled" = "1" ] && en_bool=true || en_bool=false
 	[ "$auto" = "1" ] && auto_bool=true || auto_bool=false
+	[ "$keep_config" = "0" ] && keep_bool=false || keep_bool=true
 
 	e_lv=$(json_esc "$lv")
 	e_model=$(json_esc "$model")
@@ -124,8 +126,8 @@ do_status() {
 	printf '"remote":%s,' "$remote_json"
 	printf '"progress":{"phase":"%s","percent":%s,"message":"%s"},' "$e_phase" "$pct" "$e_msg"
 	printf '"pending":%s,' "$pending_json"
-	printf '"settings":{"enabled":%s,"auto":%s,"image":"%s","channel":"%s"},' \
-		"$en_bool" "$auto_bool" "$e_image" "$e_channel"
+	printf '"settings":{"enabled":%s,"auto":%s,"image":"%s","channel":"%s","keepConfig":%s},' \
+		"$en_bool" "$auto_bool" "$e_image" "$e_channel" "$keep_bool"
 	printf '"log":%s}' "$log_json"
 }
 
