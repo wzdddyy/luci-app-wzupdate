@@ -10,5 +10,4 @@
 
 ## 下载
 
-在 [Releases](https://github.com/wzdddyy/luci-app-wzupdate/releases/latest) 页面下载对应格式的安装包：
-
+- [luci-app-wzupdate_all.apk](https://github.com/wzdddyy/luci-app-wzupdate/releases/download/latest/luci-app-wzupdate_all.apk)
