@@ -181,7 +181,7 @@ jobs:
             echo ""
             echo "使用此插件需配合指定分区表，详见 [分区说明](https://github.com/wzdddyy/iStoreOS-NN6000/blob/main/partition/README.md)。"
             echo ""
-            echo "- apk（OpenWrt 25.x / iStoreOS）：[luci-app-wzupdate_all.apk](${base}/luci-app-wzupdate_all.apk)"
+            echo "- apk：[luci-app-wzupdate_all.apk](${base}/luci-app-wzupdate_all.apk)"
           } > notes.md
 
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
