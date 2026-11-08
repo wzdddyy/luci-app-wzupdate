@@ -4,6 +4,8 @@
 
 还未进行测试，有需要的可以自行下载安装测试，有问题欢迎反馈。
 
+使用此插件需配合指定分区表，详见 [分区说明](https://github.com/wzdddyy/iStoreOS-NN6000/blob/main/partition/README.md)。
+
 ## 下载
 
 在 [Releases](https://github.com/wzdddyy/luci-app-wzupdate/releases/latest) 页面下载对应格式的安装包：
