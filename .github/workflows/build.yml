@@ -2,9 +2,14 @@ name: build
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: '构建完成后更新 latest Release'
+        type: boolean
+        default: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -139,4 +144,53 @@ jobs:
           name: luci-app-wzupdate-${{ matrix.label }}
           path: out/*
           if-no-files-found: error
+
+  publish:
+    name: publish latest
+    needs: build
+    if: github.event.inputs.publish != 'false'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          pattern: luci-app-wzupdate-*
+
+      - name: Flatten
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find artifacts -type f -exec cp -v {} out/ \;
+          ls -lh out/
+          test "$(ls -1 out | wc -l | tr -d ' ')" -eq 2 || {
+            echo "ERROR: 期望 2 个包 (apk + ipk)" >&2
+            ls -1 out >&2; exit 1; }
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: latest
+        run: |
+          set -euo pipefail
+          ver=$(grep -m1 '^PKG_VERSION:=' Makefile | cut -d= -f2 | tr -d ' ')
+          rel=$(grep -m1 '^PKG_RELEASE:=' Makefile | cut -d= -f2 | tr -d ' ')
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+
+          {
+            echo "给 [iStoreOS-NN6000](https://github.com/wzdddyy/iStoreOS-NN6000) 提供在线更新固件的 LuCI 插件。"
+            echo ""
+            echo "还未进行测试，有需要的可以自行下载安装测试，有问题欢迎反馈。"
+            echo ""
+            echo "- apk（OpenWrt 25.x / iStoreOS）：[luci-app-wzupdate_all.apk](${base}/luci-app-wzupdate_all.apk)"
+            echo "- ipk（OpenWrt 24.10）：[luci-app-wzupdate_all.ipk](${base}/luci-app-wzupdate_all.ipk)"
+          } > notes.md
+
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+                 --title "luci-app-wzupdate (rolling)" --notes-file notes.md --latest=false
+          gh release upload "$TAG" out/* -R "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" \
+            --title "luci-app-wzupdate ${ver}-r${rel}" --notes-file notes.md --latest=false
 
