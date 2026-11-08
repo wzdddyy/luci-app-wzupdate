@@ -26,12 +26,6 @@ jobs:
             sdkfile: x86-64
             gcc: "14.3.0"
             ext: apk
-          - label: ipk
-            openwrt: "24.10.6"
-            sdkpath: x86/64
-            sdkfile: x86-64
-            gcc: "13.3.0"
-            ext: ipk
 
     steps:
       - uses: actions/checkout@v5
@@ -164,8 +158,8 @@ jobs:
           mkdir -p out
           find artifacts -type f -exec cp -v {} out/ \;
           ls -lh out/
-          test "$(ls -1 out | wc -l | tr -d ' ')" -eq 2 || {
-            echo "ERROR: 期望 2 个包 (apk + ipk)" >&2
+          test "$(ls -1 out | wc -l | tr -d ' ')" -eq 1 || {
+            echo "ERROR: 期望 1 个包 (apk)" >&2
             ls -1 out >&2; exit 1; }
 
       - name: Publish
@@ -186,7 +180,6 @@ jobs:
             echo "使用此插件需配合指定分区表，详见 [分区说明](https://github.com/wzdddyy/iStoreOS-NN6000/blob/main/partition/README.md)。"
             echo ""
             echo "- apk（OpenWrt 25.x / iStoreOS）：[luci-app-wzupdate_all.apk](${base}/luci-app-wzupdate_all.apk)"
-            echo "- ipk（OpenWrt 24.10）：[luci-app-wzupdate_all.ipk](${base}/luci-app-wzupdate_all.ipk)"
           } > notes.md
 
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
