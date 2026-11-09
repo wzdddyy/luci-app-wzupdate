@@ -245,7 +245,7 @@ return view.extend({
 		r.uptime.textContent = local.uptime || '—';
 		r.rollback.textContent = pending
 			? (pending.running ? _('保留上一版本，可回退') : _('保留当前版本，可撤回本次更新'))
-			: _('更新后保留上一版本');
+			: (settings.keepConfig === false ? _('更新后不保留上一版本') : _('更新后保留上一版本'));
 		r.localBadge.className = 'wz-badge ok';
 		r.localBadge.innerHTML = '';
 		r.localBadge.appendChild(E('i', { 'class': 'wz-dot' }));
