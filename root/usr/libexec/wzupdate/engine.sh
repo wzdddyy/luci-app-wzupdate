@@ -682,6 +682,7 @@ write_image() {
 	kv_write "$PENDING" version "$ver"
 	kv_write "$PENDING" stamp "$stamp"
 	kv_write "$PENDING" prev_version "$prev"
+	kv_write "$PENDING" rootfs_size "$rsize"
 	kv_write "$PENDING" sha "$(kv_read "$WORK/meta" SHA '')"
 	kv_write "$PENDING" time "$(date '+%Y-%m-%d %H:%M')"
 	rm -rf "$WORK"
@@ -842,13 +843,27 @@ cancel_update() {
 }
 
 wipe_overlay() {
+	local slot=$1 rname rdev rsize off
 	if command -v factoryreset >/dev/null 2>&1; then
 		factoryreset -y >/dev/null 2>&1 && return 0
 	fi
 	if command -v jffs2reset >/dev/null 2>&1; then
 		jffs2reset -y >/dev/null 2>&1 && return 0
 	fi
-	return 1
+
+	[ -z "$(part_dev 'rootfs_data')" ] || return 1
+	rname=$(slot_root "$slot") || return 1
+	rdev=$(part_dev "$rname")
+	rsize=$(kv_read "$PENDING" rootfs_size 0)
+	case "$rsize" in ''|*[!0-9]*) rsize=0 ;; esac
+	if [ -z "$rdev" ] || [ "$rsize" -le 0 ] 2>/dev/null; then
+		return 1
+	fi
+	off=$(( (rsize + 4095) / 4096 * 4096 ))
+	dd if=/dev/zero of="$rdev" bs=4096 seek=$(( off / 4096 )) count=256 2>/dev/null || return 1
+	sync
+	log "已清零 $rname 的 overlay 起始区域（偏移 $(( off / 1024 )) KiB）"
+	return 0
 }
 
 apply_update() {
@@ -864,7 +879,7 @@ apply_update() {
 	fi
 	if [ "$(uci_get keep_config 1)" = "0" ]; then
 		log '更新不保留配置：清除 overlay 数据'
-		wipe_overlay || log '清除配置失败，本次仍保留配置'
+		wipe_overlay "$slot" || log '清除配置失败，本次仍保留配置'
 	fi
 	log "已切换到槽位 $slot，即将重启"
 	(sleep 2; reboot) >/dev/null 2>&1 &
