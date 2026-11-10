@@ -107,6 +107,21 @@ html.dark #wzupdate-page,
 	background: var(--wz-surface-2);
 }
 
+#wzupdate-page .wz-btn:disabled {
+	opacity: .5;
+	cursor: not-allowed;
+}
+
+#wzupdate-page select.wz-input:disabled {
+	opacity: .55;
+	cursor: not-allowed;
+}
+
+#wzupdate-page .wz-switch input:disabled + span {
+	opacity: .45;
+	cursor: not-allowed;
+}
+
 #wzupdate-page .wz-btn:not(.primary):not(.danger) {
 	border-color: var(--wz-brand);
 	background: var(--wz-brand-soft);
@@ -252,6 +267,21 @@ html.dark #wzupdate-page,
 #wzupdate-page .wz-kv b.mono {
 	font-family: var(--wz-mono);
 	font-size: 12px;
+}
+
+#wzupdate-page a.wz-chip {
+	text-decoration: none;
+}
+
+#wzupdate-page .wz-chip.link {
+	color: var(--wz-brand-ink);
+	background: var(--wz-brand-soft);
+	border-color: transparent;
+}
+
+#wzupdate-page .wz-chip.link:hover {
+	color: var(--wz-brand);
+	text-decoration: underline;
 }
 
 #wzupdate-page .wz-notes {
@@ -432,6 +462,11 @@ html.dark #wzupdate-page,
 	font-size: 12px;
 	color: var(--wz-muted);
 	margin-top: 2px;
+}
+
+#wzupdate-page .wz-card.wz-off .wz-field-label,
+#wzupdate-page .wz-card.wz-off .wz-field-help {
+	opacity: .6;
 }
 
 #wzupdate-page .wz-field-control {
