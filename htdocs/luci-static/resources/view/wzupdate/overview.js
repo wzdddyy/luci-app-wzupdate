@@ -12,7 +12,9 @@ var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-30';
+var UI_VERSION = '1.0.0-33';
+
+var PARTITION_URL = 'https://raw.githubusercontent.com/wzdddyy/iStoreOS-NN6000/main/partition/NN6000_UBOOT.bin';
 
 return view.extend({
 	load: function() {
@@ -183,7 +185,7 @@ return view.extend({
 			'change': function() { self._queueSave(); }
 		});
 
-		return E('div', { 'class': 'wz-card' }, [
+		return r.settingsCard = E('div', { 'class': 'wz-card' }, [
 			E('div', { 'class': 'wz-section' }, [ _('更新设置') ]),
 			E('div', { 'class': 'wz-field' }, [
 				E('div', {}, [
@@ -263,6 +265,12 @@ return view.extend({
 		else {
 			r.chips.appendChild(E('span', { 'class': 'wz-chip err' }, [ _('分区不支持安全更新') ]));
 			r.chips.appendChild(E('span', { 'class': 'wz-chip err' }, [ _('在线更新已禁用') ]));
+			r.chips.appendChild(E('a', {
+				'class': 'wz-chip link',
+				href: PARTITION_URL,
+				target: '_blank',
+				rel: 'noopener'
+			}, [ _('下载支持分区 NN6000_UBOOT.bin') ]));
 		}
 
 		var hasRemote = !!remote;
@@ -358,10 +366,11 @@ return view.extend({
 		r.log.scrollTop = r.log.scrollHeight;
 
 		var busy = (state === 'busy');
-		var canUpdate = !!(remote && remote.newer && (!pending || pending.running) && local.ab && state !== 'busy');
+		var supported = !!local.ab;
+		var canUpdate = !!(remote && remote.newer && (!pending || pending.running) && supported && state !== 'busy');
 		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
 		r.check.dataset.mode = canUpdate ? 'update' : 'check';
-		r.check.disabled = busy || state === 'pending';
+		r.check.disabled = busy || state === 'pending' || !supported;
 		if (this._checking) {
 			r.check.textContent = _('检查中…');
 			r.check.dataset.mode = 'check';
@@ -371,6 +380,12 @@ return view.extend({
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
 		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
 		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
+
+		r.enabled.disabled = !supported;
+		r.imageSel.disabled = !supported;
+		r.channelSel.disabled = !supported;
+		r.keepConfig.disabled = !supported;
+		r.settingsCard.classList.toggle('wz-off', !supported);
 
 	},
 
