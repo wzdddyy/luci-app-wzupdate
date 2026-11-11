@@ -254,17 +254,38 @@ slot_root() {
 	esac
 }
 
+write_byte() {
+	printf "\\$(printf '%03o' "$3")" | dd of="$1" bs=1 seek="$2" conv=notrunc 2>/dev/null
+}
+
 set_slot() {
-	local cfg val
+	local cfg val oa ob ra rb
 	val=$1
 	case "$val" in
 		0|1) ;;
 		*) return 1 ;;
 	esac
 	cfg=$(part_dev '0:BOOTCONFIG') || return 1
-	printf "\\$(printf '%03o' "$val")" | dd of="$cfg" bs=1 seek=128 conv=notrunc 2>/dev/null || return 1
-	printf "\\$(printf '%03o' "$val")" | dd of="$cfg" bs=1 seek=148 conv=notrunc 2>/dev/null || return 1
+	oa=$(read_byte "$cfg" 128) || return 1
+	ob=$(read_byte "$cfg" 148) || return 1
+	if ! write_byte "$cfg" 128 "$val" || ! write_byte "$cfg" 148 "$val"; then
+		write_byte "$cfg" 128 "$oa"
+		write_byte "$cfg" 148 "$ob"
+		sync
+		log '启动槽位写入失败，已恢复原值'
+		return 1
+	fi
 	sync
+	command -v blockdev >/dev/null 2>&1 && blockdev --flushbufs "$cfg" >/dev/null 2>&1
+	ra=$(read_byte "$cfg" 128) || ra=255
+	rb=$(read_byte "$cfg" 148) || rb=255
+	if [ "$ra" != "$val" ] || [ "$rb" != "$val" ]; then
+		log "启动槽位写入校验失败（回读 $ra/$rb，期望 $val），已恢复原值"
+		write_byte "$cfg" 128 "$oa"
+		write_byte "$cfg" 148 "$ob"
+		sync
+		return 1
+	fi
 	return 0
 }
 
@@ -803,6 +824,7 @@ cancel_update() {
 	if [ -n "$pend_key" ] && [ "$pend_key" = "$cur_key" ]; then
 		prev=$(kv_read "$PENDING" prev_slot 0)
 		if ! set_slot "$prev"; then
+			set_state error 0 '回退失败：无法切换启动分区'
 			log '回退失败：无法切换启动分区'
 			return 1
 		fi
@@ -811,6 +833,12 @@ cancel_update() {
 		log "已切换到上一版本（槽位 $prev），即将重启"
 		(sleep 2; cold_reboot) >/dev/null 2>&1 &
 	else
+		cur=$(current_slot 2>/dev/null)
+		if [ -n "$cur" ] && ! set_slot "$cur"; then
+			set_state error 0 '撤回失败：无法恢复启动分区'
+			log '撤回失败：无法写回当前启动槽位'
+			return 1
+		fi
 		rm -f "$PENDING"
 		rm -rf "$WORK" "$FW" "$BASE/partial"
 		set_state idle 0 '已撤回待重启的更新'
@@ -844,6 +872,7 @@ apply_update() {
 	fi
 	slot=$(kv_read "$PENDING" slot 1)
 	if ! set_slot "$slot"; then
+		set_state error 0 '切换启动分区失败'
 		log '切换启动分区失败'
 		return 1
 	fi
