@@ -1,8 +1,8 @@
 #!/bin/sh
 if ! uci -q get wzupdate.settings >/dev/null 2>&1; then
 	uci -q set wzupdate.settings=wzupdate
-	uci -q set wzupdate.settings.enabled='0'
-	uci -q set wzupdate.settings.auto='0'
+	uci -q set wzupdate.settings.enabled='1'
+	uci -q set wzupdate.settings.auto='1'
 	uci -q set wzupdate.settings.image='auto'
 	uci -q set wzupdate.settings.channel='auto'
 	uci -q set wzupdate.settings.keep_config='1'
