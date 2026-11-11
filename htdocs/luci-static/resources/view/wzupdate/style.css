@@ -11,6 +11,7 @@
 	--wz-brand-ink: #066344;
 	--wz-danger: #d64545;
 	--wz-danger-soft: #fdecec;
+	--wz-danger-ink: #ffffff;
 	--wz-warning: #b7791f;
 	--wz-warning-soft: #fdf4e3;
 	--wz-info: #2f6feb;
@@ -43,6 +44,7 @@ html.dark #wzupdate-page,
 	--wz-brand-ink: #b9f5da;
 	--wz-danger: #ff6b6b;
 	--wz-danger-soft: #3a2020;
+	--wz-danger-ink: #1e1e1e;
 	--wz-warning: #e6b566;
 	--wz-warning-soft: #3a2f1b;
 	--wz-info: #6aa1ff;
@@ -145,9 +147,23 @@ html.dark #wzupdate-page,
 }
 
 #wzupdate-page .wz-btn.danger {
-	background: var(--wz-danger-soft);
-	border-color: transparent;
-	color: var(--wz-danger);
+	background: var(--wz-danger);
+	border-color: var(--wz-danger);
+	color: var(--wz-danger-ink);
+}
+
+#wzupdate-page .wz-btn.danger:hover:not(:disabled) {
+	background: var(--wz-danger);
+	border-color: var(--wz-danger);
+	color: var(--wz-danger-ink);
+	filter: brightness(.9);
+}
+
+#wzupdate-page .wz-btn.danger:disabled {
+	background: var(--wz-surface-2);
+	border-color: var(--wz-border);
+	color: var(--wz-muted);
+	opacity: 1;
 }
 
 #wzupdate-page .wz-card {
