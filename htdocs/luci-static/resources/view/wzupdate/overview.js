@@ -88,9 +88,9 @@ return view.extend({
 			r.localVer = E('div', { 'class': 'wz-ver' }),
 			E('div', { style: 'margin-top:10px' }, [
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.device = E('b') ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件类型') ]), r.target = E('b') ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('提交') ]), r.target = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.localKernel = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件版本') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译时间') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('回退备份') ]), r.rollback = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('运行时长') ]), r.uptime = E('b') ])
 			]),
@@ -110,7 +110,7 @@ return view.extend({
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('设备') ]), r.remoteDevice = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('提交') ]), r.remoteCommit = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.remoteKernel = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('固件版本') ]), r.remoteBuild = E('b', { 'class': 'mono' }) ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译时间') ]), r.remoteBuild = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('文件大小') ]), r.remoteSize = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('上次检查') ]), r.checked = E('b') ])
 			]),
@@ -239,9 +239,10 @@ return view.extend({
 
 		r.localVer.innerHTML = '';
 		r.localVer.appendChild(document.createTextNode(local.release || 'iStoreOS'));
-		r.device.textContent = local.device || '—';
-		r.target.textContent = (local.release || 'iStoreOS').split(' ')[0] + ' / ' +
-			(local.firmware === 'nowifi' ? _('无 WiFi 版') : _('WiFi 版'));
+		r.device.textContent = local.device
+			? local.device + '(' + (local.firmware === 'nowifi' ? 'NOWIFI' : 'WIFI') + ')'
+			: '—';
+		r.target.textContent = local.commit || '—';
 		r.localKernel.textContent = local.kernel || '—';
 		r.localBuild.textContent = this._stamp(local.version) || '—';
 		r.uptime.textContent = local.uptime || '—';
@@ -280,7 +281,11 @@ return view.extend({
 				? remote.branch.replace(/^istoreos-/, 'iStoreOS ')
 				: (hasRemote && remote.version ? this._stamp(remote.version) : (local.ab ? _('未检查') : _('不可用')))
 		));
-		r.remoteDevice.textContent = local.device || '—';
+		var remoteFwLabel = settings.image === 'nowifi' ? 'NOWIFI' :
+			(settings.image === 'wifi' ? 'WIFI' : (local.firmware === 'nowifi' ? 'NOWIFI' : 'WIFI'));
+		r.remoteDevice.textContent = local.device
+			? local.device + '(' + remoteFwLabel + ')'
+			: '—';
 		r.remoteCommit.textContent = hasRemote && remote.commit ? remote.commit : '—';
 		r.remoteKernel.textContent = hasRemote && remote.kernel ? remote.kernel : '—';
 		r.remoteBuild.textContent = hasRemote
