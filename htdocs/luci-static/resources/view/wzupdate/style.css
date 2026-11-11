@@ -546,6 +546,16 @@ html.dark #wzupdate-page,
 	transform: translateX(20px);
 }
 
+#wzupdate-page .wz-reboot-tip {
+	margin-bottom: 12px;
+	padding: 10px 14px;
+	border: 1px solid var(--wz-border);
+	border-radius: var(--wz-radius);
+	background: var(--wz-brand-soft);
+	color: var(--wz-brand-ink);
+	font-size: 14px;
+}
+
 @media (max-width: 900px) {
 	#wzupdate-page .wz-grid {
 		grid-template-columns: 1fr;
