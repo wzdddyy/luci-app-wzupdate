@@ -218,7 +218,16 @@ read_uint() {
 }
 
 current_slot() {
-	local cfg a b
+	local cfg a b s root dev uuid
+	root=$(sed -n 's/.*root=PARTUUID=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+	if [ -n "$root" ]; then
+		for s in 0 1; do
+			dev=$(part_dev "$(slot_root "$s")" 2>/dev/null)
+			[ -n "$dev" ] || continue
+			uuid=$(blkid -s PARTUUID -o value "$dev" 2>/dev/null)
+			[ -n "$uuid" ] && [ "$uuid" = "$root" ] && { printf '%s' "$s"; return 0; }
+		done
+	fi
 	cfg=$(part_dev '0:BOOTCONFIG') || return 1
 	a=$(read_byte "$cfg" 128) || return 1
 	b=$(read_byte "$cfg" 148) || return 1
