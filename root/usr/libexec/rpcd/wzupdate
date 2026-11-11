@@ -153,14 +153,13 @@ run_bg() {
 
 case "$1" in
 	list)
-		printf '{"status":{},"start":{},"check":{},"update":{},"cancel":{},"reboot":{},"rollback":{}}'
+		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{},"rollback":{}}'
 		;;
 	call)
 		case "$2" in
 			status) do_status ;;
 			start) run_bg manual ;;
 			check) run_bg check ;;
-			update) run_bg update ;;
 			cancel|rollback) cancel_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			reboot) apply_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			*) printf '{"ok":false,"error":"unknown method"}' ;;
