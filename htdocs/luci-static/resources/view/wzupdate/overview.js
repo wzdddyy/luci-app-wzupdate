@@ -6,13 +6,12 @@
 
 var callStatus = rpc.declare({ object: 'wzupdate', method: 'status' });
 var callCheck = rpc.declare({ object: 'wzupdate', method: 'check' });
-var callUpdate = rpc.declare({ object: 'wzupdate', method: 'update' });
 var callCancel = rpc.declare({ object: 'wzupdate', method: 'cancel' });
 var callReboot = rpc.declare({ object: 'wzupdate', method: 'reboot' });
 
 var STAGES = [ _('检查更新'), _('下载固件'), _('完整性校验'), _('写入备份分区'), _('写入校验'), _('等待重启') ];
 
-var UI_VERSION = '1.0.0-33';
+var UI_VERSION = '1.0.0-34';
 
 var PARTITION_URL = 'https://raw.githubusercontent.com/wzdddyy/iStoreOS-NN6000/main/partition/NN6000_UBOOT.bin';
 
@@ -44,10 +43,7 @@ return view.extend({
 					this._refs.check = E('button', {
 						'class': 'wz-btn',
 						'click': function() {
-							if (self._refs.check.dataset.mode === 'update')
-								self._update();
-							else
-								self._check();
+							self._check();
 						}
 					}, [ _('检查更新') ]),
 					this._refs.reboot = E('button', {
@@ -190,7 +186,7 @@ return view.extend({
 			E('div', { 'class': 'wz-field' }, [
 				E('div', {}, [
 					E('div', { 'class': 'wz-field-label' }, [ _('启用自动更新') ]),
-					E('div', { 'class': 'wz-field-help' }, [ _('定时发现新版本自动下载并校验固件') ])
+					E('div', { 'class': 'wz-field-help' }, [ _('每小时检测新版本，自动下载、校验并写入备份分区，重启后生效') ])
 				]),
 				E('div', { 'class': 'wz-field-control' }, [
 					E('label', { 'class': 'wz-switch' }, [ r.enabled, E('span') ])
@@ -372,13 +368,10 @@ return view.extend({
 
 		var busy = (state === 'busy');
 		var supported = !!local.ab;
-		var canUpdate = !!(remote && remote.newer && (!pending || pending.running) && supported && state !== 'busy');
-		r.check.textContent = canUpdate ? _('更新固件') : _('检查更新');
-		r.check.dataset.mode = canUpdate ? 'update' : 'check';
+		r.check.textContent = _('检查更新');
 		r.check.disabled = busy || state === 'pending' || !supported;
 		if (this._checking) {
 			r.check.textContent = _('检查中…');
-			r.check.dataset.mode = 'check';
 			r.check.disabled = true;
 		}
 		r.check.style.display = (state === 'pending') ? 'none' : '';
@@ -558,33 +551,64 @@ return view.extend({
 		});
 	},
 
-	_update: function() {
+	_reboot: function() {
 		var self = this;
-		return callUpdate().catch(function() {
-			ui.addNotification(null, E('p', {}, [ _('启动更新失败，请查看日志') ]), 'error');
-		}).then(function() {
-			setTimeout(function() {
-				L.resolveDefault(callStatus(), null).then(function(s) {
-					if (s)
-						self._apply(s);
-				});
-			}, 1000);
+		if (!window.confirm(_('确认重启并切换到新版本？重启期间网络会中断。')))
+			return;
+		return callReboot().then(function(r) {
+			if (!r || r.ok)
+				self._waitReboot();
 		});
 	},
 
-	_reboot: function() {
-		if (!window.confirm(_('确认重启并切换到新版本？重启期间网络会中断。')))
-			return;
-		return callReboot();
-	},
-
 	_cancel: function() {
-		var msg = (this._refs.cancel.textContent.indexOf(_('回退')) === 0)
+		var self = this;
+		var rollback = this._refs.cancel.textContent.indexOf(_('回退')) === 0;
+		var msg = rollback
 			? _('确认回退到上一版本并重启？')
 			: _('确认撤回已写入的更新？');
 		if (!window.confirm(msg))
 			return;
-		return callCancel();
+		return callCancel().then(function(r) {
+			if (rollback && (!r || r.ok))
+				self._waitReboot();
+		});
+	},
+
+	_waitReboot: function() {
+		if (this._waiting)
+			return;
+		this._waiting = true;
+
+		if (this._timer) {
+			clearInterval(this._timer);
+			this._timer = null;
+		}
+
+		var tip = E('div', { 'class': 'wz-reboot-tip' },
+			[ _('设备正在重启，页面会自动刷新，请稍候…') ]);
+		this._root.insertBefore(tip, this._root.firstChild);
+
+		// 先等设备下线，再等它重新上线，避免重启还没开始就刷新页面
+		var down = false, tries = 0;
+		var timer = setInterval(function() {
+			if (++tries > 120) {
+				clearInterval(timer);
+				tip.textContent = _('等待设备超时，请手动刷新页面');
+				return;
+			}
+
+			L.resolveDefault(callStatus(), null).then(function(s) {
+				if (!s) {
+					down = true;
+					return;
+				}
+				if (down) {
+					clearInterval(timer);
+					location.reload();
+				}
+			});
+		}, 3000);
 	},
 
 	_queueSave: function() {
