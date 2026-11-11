@@ -339,7 +339,7 @@ check_update() {
 		done
 	fi
 
-	name=$(grep -F "$target-squashfs-sysupgrade.bin" "$BASE/assets.name" 2>/dev/null | head -n1)
+	name=$(grep -F "$target-squashfs-factory.bin" "$BASE/assets.name" 2>/dev/null | head -n1)
 	if [ -z "$name" ]; then
 		set_state error 0 '该版本没有适用于当前设备的固件'
 		log "该版本没有适用于当前设备的固件（目标：$target，发布：$tag）"
@@ -546,7 +546,7 @@ is_squashfs_at() {
 }
 
 prepare_image() {
-	local size off sha cand expect_sha
+	local size off sha cand expect_sha magic
 	set_state verifying 63 '正在校验固件'
 	size=$(file_size "$FW")
 	if [ "$size" -lt 1048576 ]; then
@@ -556,6 +556,13 @@ prepare_image() {
 	fi
 
 	off=""
+	magic=$(hexdump -v -n 4 -e '1/1 "%02x"' "$FW" 2>/dev/null)
+	if [ "$magic" != "d00dfeed" ]; then
+		rm -f "$FW" "$BASE/partial"
+		set_state error 0 '固件格式无法识别'
+		log "固件格式无法识别：内核不是 FIT 镜像（magic=$magic）"
+		return 1
+	fi
 	for cand in $(grep -abo 'hsqs' "$FW" 2>/dev/null | cut -d: -f1 |
 			awk '$1 > 1048576 {print}' | head -n 30); do
 		if is_squashfs_at "$FW" "$cand"; then
@@ -682,7 +689,6 @@ write_image() {
 	kv_write "$PENDING" version "$ver"
 	kv_write "$PENDING" stamp "$stamp"
 	kv_write "$PENDING" prev_version "$prev"
-	kv_write "$PENDING" rootfs_size "$rsize"
 	kv_write "$PENDING" sha "$(kv_read "$WORK/meta" SHA '')"
 	kv_write "$PENDING" time "$(date '+%Y-%m-%d %H:%M')"
 	rm -rf "$WORK"
@@ -843,26 +849,19 @@ cancel_update() {
 }
 
 wipe_overlay() {
-	local slot=$1 rname rdev rsize off
-	if command -v factoryreset >/dev/null 2>&1; then
-		factoryreset -y >/dev/null 2>&1 && return 0
+	local ovl=""
+	if command -v factoryreset >/dev/null 2>&1 && factoryreset -y >/dev/null 2>&1; then
+		log '已标记 overlay 为重置，重启后重新格式化'
+		return 0
 	fi
-	if command -v jffs2reset >/dev/null 2>&1; then
-		jffs2reset -y >/dev/null 2>&1 && return 0
+	if [ -r /lib/functions/istoreos-boot.sh ]; then
+		. /lib/functions/istoreos-boot.sh
+		get_overlay_partition >/dev/null 2>&1
+		ovl="$OVERLAY_DEV"
 	fi
-
-	[ -z "$(part_dev 'rootfs_data')" ] || return 1
-	rname=$(slot_root "$slot") || return 1
-	rdev=$(part_dev "$rname")
-	rsize=$(kv_read "$PENDING" rootfs_size 0)
-	case "$rsize" in ''|*[!0-9]*) rsize=0 ;; esac
-	if [ -z "$rdev" ] || [ "$rsize" -le 0 ] 2>/dev/null; then
-		return 1
-	fi
-	off=$(( (rsize + 4095) / 4096 * 4096 ))
-	dd if=/dev/zero of="$rdev" bs=4096 seek=$(( off / 4096 )) count=256 2>/dev/null || return 1
-	sync
-	log "已清零 $rname 的 overlay 起始区域（偏移 $(( off / 1024 )) KiB）"
+	[ -n "$ovl" ] || return 1
+	echo "RESET000" | dd of="$ovl" bs=512 count=1 conv=notrunc,sync,fsync 2>/dev/null || return 1
+	log "已标记 $ovl 为重置，重启后重新格式化"
 	return 0
 }
 
@@ -879,7 +878,7 @@ apply_update() {
 	fi
 	if [ "$(uci_get keep_config 1)" = "0" ]; then
 		log '更新不保留配置：清除 overlay 数据'
-		wipe_overlay "$slot" || log '清除配置失败，本次仍保留配置'
+		wipe_overlay || log '清除配置失败，本次仍保留配置'
 	fi
 	log "已切换到槽位 $slot，即将重启"
 	(sleep 2; reboot) >/dev/null 2>&1 &
