@@ -28,6 +28,7 @@ do_status() {
 	dist_id=""
 	dist_rel=""
 	dist_rev=""
+	local_commit=""
 	if [ -r /etc/openwrt_release ]; then
 		dist_id=$(. /etc/openwrt_release 2>/dev/null; printf '%s' "$DISTRIB_ID")
 		dist_rel=$(. /etc/openwrt_release 2>/dev/null; printf '%s' "$DISTRIB_RELEASE")
@@ -35,13 +36,17 @@ do_status() {
 	fi
 	if [ -n "$dist_id" ] && [ -n "$dist_rel" ]; then
 		release="$dist_id $dist_rel"
-		[ -n "$dist_rev" ] && release="$release $dist_rev"
 	elif [ -n "$dist_id" ]; then
 		release="$dist_id"
 	elif [ -n "$dist_rel" ]; then
 		release="$dist_rel"
 	else
 		release='iStoreOS'
+	fi
+	if [ -n "$dist_rev" ]; then
+		local_commit=$(printf '%s' "$dist_rev" | sed 's/.*-//')
+		local_rev=$(printf '%s' "$dist_rev" | sed 's/-.*//')
+		[ -n "$local_rev" ] && release="$release $local_rev"
 	fi
 	ab=0
 	ab_supported && ab=1
@@ -118,6 +123,7 @@ do_status() {
 	e_uptime=$(json_esc "$uptime")
 	e_kernel=$(json_esc "$kernel")
 	e_release=$(json_esc "$release")
+	e_lcommit=$(json_esc "$local_commit")
 	e_phase=$(json_esc "$phase")
 	e_msg=$(json_esc "$msg")
 	e_image=$(json_esc "$image")
@@ -126,8 +132,8 @@ do_status() {
 	e_labels=$(json_esc "$labels")
 
 	printf '{"ok":true,'
-	printf '"local":{"version":"%s","device":"%s","board":"%s","target":"%s","firmware":"%s","ab":%s,"abMissing":"%s","labels":"%s","uptime":"%s","kernel":"%s","release":"%s"},' \
-		"$e_lv" "$e_model" "$e_board" "$e_target" "$(firmware_type)" "$ab" "$e_abmiss" "$e_labels" "$e_uptime" "$e_kernel" "$e_release"
+	printf '"local":{"version":"%s","device":"%s","board":"%s","target":"%s","firmware":"%s","ab":%s,"abMissing":"%s","labels":"%s","uptime":"%s","kernel":"%s","release":"%s","commit":"%s"},' \
+		"$e_lv" "$e_model" "$e_board" "$e_target" "$(firmware_type)" "$ab" "$e_abmiss" "$e_labels" "$e_uptime" "$e_kernel" "$e_release" "$e_lcommit"
 	printf '"remote":%s,' "$remote_json"
 	printf '"progress":{"phase":"%s","percent":%s,"message":"%s"},' "$e_phase" "$pct" "$e_msg"
 	printf '"pending":%s,' "$pending_json"
