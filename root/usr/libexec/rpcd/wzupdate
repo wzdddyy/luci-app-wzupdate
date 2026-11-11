@@ -27,12 +27,15 @@ do_status() {
 	kernel=$(uname -r 2>/dev/null)
 	dist_id=""
 	dist_rel=""
+	dist_rev=""
 	if [ -r /etc/openwrt_release ]; then
 		dist_id=$(. /etc/openwrt_release 2>/dev/null; printf '%s' "$DISTRIB_ID")
 		dist_rel=$(. /etc/openwrt_release 2>/dev/null; printf '%s' "$DISTRIB_RELEASE")
+		dist_rev=$(. /etc/openwrt_release 2>/dev/null; printf '%s' "${DISTRIB_REVISION:-$REVISION}")
 	fi
 	if [ -n "$dist_id" ] && [ -n "$dist_rel" ]; then
 		release="$dist_id $dist_rel"
+		[ -n "$dist_rev" ] && release="$release $dist_rev"
 	elif [ -n "$dist_id" ]; then
 		release="$dist_id"
 	elif [ -n "$dist_rel" ]; then
