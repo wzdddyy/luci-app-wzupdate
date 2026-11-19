@@ -18,19 +18,9 @@ log() {
 	printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"
 }
 
-cold_reboot() {
-	ubus call system watchdog '{"stop":true}' >/dev/null 2>&1
+do_reboot() {
 	log '准备重启设备'
-	if [ -w /dev/watchdog ] && (printf '1' >/dev/watchdog) 2>/dev/null; then
-		(
-			exec 3>/dev/watchdog || exit 1
-			echo 10 >/sys/class/watchdog/watchdog0/timeout 2>/dev/null
-			printf '1' >&3
-			sleep 300
-			reboot
-		) >/dev/null 2>&1 &
-		return 0
-	fi
+	sync
 	reboot
 }
 
@@ -831,7 +821,7 @@ cancel_update() {
 		rm -f "$PENDING"
 		set_state idle 0 '正在回退到上一版本'
 		log "已切换到上一版本（槽位 $prev），即将重启"
-		(sleep 2; cold_reboot) >/dev/null 2>&1 &
+		(sleep 2; do_reboot) >/dev/null 2>&1 &
 	else
 		cur=$(current_slot 2>/dev/null)
 		if [ -n "$cur" ] && ! set_slot "$cur"; then
@@ -881,7 +871,7 @@ apply_update() {
 		wipe_overlay || log '清除配置失败，本次仍保留配置'
 	fi
 	log "已切换到槽位 $slot，即将重启"
-	(sleep 2; cold_reboot) >/dev/null 2>&1 &
+	(sleep 2; do_reboot) >/dev/null 2>&1 &
 	return 0
 }
 
