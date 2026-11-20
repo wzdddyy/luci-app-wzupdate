@@ -87,7 +87,7 @@ return view.extend({
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('提交') ]), r.target = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('内核版本') ]), r.localKernel = E('b', { 'class': 'mono' }) ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('编译时间') ]), r.localBuild = E('b', { 'class': 'mono' }) ]),
-				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('回退备份') ]), r.rollback = E('b') ]),
+				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('版本备份') ]), r.rollback = E('b') ]),
 				E('div', { 'class': 'wz-kv' }, [ E('span', {}, [ _('运行时长') ]), r.uptime = E('b') ])
 			]),
 			r.chips = E('div', { 'class': 'wz-chips' })
@@ -243,17 +243,17 @@ return view.extend({
 		r.localBuild.textContent = this._stamp(local.version) || '—';
 		r.uptime.textContent = local.uptime || '—';
 		r.rollback.textContent = pending
-			? (pending.running ? _('保留上一版本，可回退') : _('保留当前版本，可撤回本次更新'))
-			: (settings.keepConfig === false ? _('更新后不保留上一版本') : _('更新后保留上一版本'));
+			? _('保留当前版本，可撤回本次更新')
+			: _('备用分区随下次更新覆盖');
 		r.localBadge.className = 'wz-badge ok';
 		r.localBadge.innerHTML = '';
 		r.localBadge.appendChild(E('i', { 'class': 'wz-dot' }));
-		r.localBadge.appendChild(document.createTextNode(pending && pending.running ? _('已更新 · 运行中') : _('当前系统运行中')));
+		r.localBadge.appendChild(document.createTextNode(_('当前系统运行中')));
 
 		r.chips.innerHTML = '';
 		if (local.ab) {
 			var keepCfg = settings.keepConfig !== false;
-			r.chips.appendChild(E('span', { 'class': 'wz-chip ok' }, [ _('支持安全回退') ]));
+			r.chips.appendChild(E('span', { 'class': 'wz-chip ok' }, [ _('双分区安全更新') ]));
 			r.chips.appendChild(E('span', { 'class': keepCfg ? 'wz-chip ok' : 'wz-chip err' }, [
 				keepCfg ? _('更新保留配置') : _('更新不保留配置')
 			]));
@@ -322,8 +322,6 @@ return view.extend({
 			badge = { text: _('正在更新'), kind: 'info' };
 		else if (state === 'pending')
 			badge = { text: _('已就绪，待重启'), kind: 'warn' };
-		else if (state === 'running')
-			badge = { text: _('已是最新'), kind: 'ok' };
 		else if (state === 'available')
 			badge = { text: _('发现新版本'), kind: 'info' };
 		else if (phase === 'idle')
@@ -351,8 +349,6 @@ return view.extend({
 			flow = { text: _('失败'), kind: 'err' };
 		else if (state === 'pending')
 			flow = { text: _('待重启'), kind: 'warn' };
-		else if (state === 'running')
-			flow = { text: _('已完成'), kind: 'ok' };
 		else if (state === 'available')
 			flow = { text: _('待开始'), kind: 'info' };
 		else if (state === 'busy')
@@ -376,8 +372,7 @@ return view.extend({
 		}
 		r.check.style.display = (state === 'pending') ? 'none' : '';
 		r.reboot.style.display = (state === 'pending') ? '' : 'none';
-		r.cancel.style.display = (state === 'pending' || state === 'running') ? '' : 'none';
-		r.cancel.textContent = (state === 'running') ? _('回退到上一版本') : _('撤回更新');
+		r.cancel.style.display = (state === 'pending') ? '' : 'none';
 
 		r.enabled.disabled = !supported;
 		r.imageSel.disabled = !supported;
@@ -452,14 +447,12 @@ return view.extend({
 		var phase = prog.phase || 'idle';
 		if (!local.ab)
 			return 'unsupported';
-		if (st.pending && !st.pending.running)
+		if (st.pending)
 			return 'pending';
 		if (phase === 'error')
 			return 'failed';
 		if (phase === 'checking' || phase === 'downloading' || phase === 'verifying' || phase === 'writing')
 			return 'busy';
-		if (st.pending)
-			return 'running';
 		if (st.remote && st.remote.newer)
 			return 'available';
 		return 'latest';
@@ -468,7 +461,7 @@ return view.extend({
 	_stageOf: function(state, phase, percent) {
 		if (state === 'unsupported')
 			return { index: -1 };
-		if (state === 'pending' || state === 'running')
+		if (state === 'pending')
 			return { index: 5 };
 		if (state === 'busy') {
 			if (phase === 'checking')
@@ -562,17 +555,9 @@ return view.extend({
 	},
 
 	_cancel: function() {
-		var self = this;
-		var rollback = this._refs.cancel.textContent.indexOf(_('回退')) === 0;
-		var msg = rollback
-			? _('确认回退到上一版本并重启？')
-			: _('确认撤回已写入的更新？');
-		if (!window.confirm(msg))
+		if (!window.confirm(_('确认撤回已写入的更新？')))
 			return;
-		return callCancel().then(function(r) {
-			if (rollback && (!r || r.ok))
-				self._waitReboot();
-		});
+		return callCancel();
 	},
 
 	_waitReboot: function() {
