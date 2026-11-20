@@ -4,7 +4,7 @@ WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh
 do_status() {
 	local lv board model target ab phase pct msg newer checked
 	local rver rtag rname rsize rnote rcommit rkernel rbranch rbuild
-	local pslot pver pprev ptime prun pkey lkey
+	local pslot pver pprev ptime
 	local enabled auto image channel keep_config uptime up days hours
 	local remote_json pending_json log_json en_bool auto_bool keep_bool
 	local e_lv e_model e_board e_target e_uptime e_phase e_msg e_image e_channel
@@ -91,16 +91,12 @@ do_status() {
 		pver=$(kv_read "$PENDING" version '')
 		pprev=$(kv_read "$PENDING" prev_version '')
 		ptime=$(kv_read "$PENDING" time '')
-		prun=false
-		pkey=$(version_key "$pver")
-		lkey=$(version_key "$lv")
-		[ -n "$pkey" ] && [ "$pkey" = "$lkey" ] && prun=true
 		case "$pslot" in ''|*[!0-9]*) pslot=1 ;; esac
 		pver=$(json_esc "$pver")
 		pprev=$(json_esc "$pprev")
 		ptime=$(json_esc "$ptime")
-		pending_json=$(printf '{"slot":%s,"version":"%s","prevVersion":"%s","time":"%s","running":%s}' \
-			"$pslot" "$pver" "$pprev" "$ptime" "$prun")
+		pending_json=$(printf '{"slot":%s,"version":"%s","prevVersion":"%s","time":"%s"}' \
+			"$pslot" "$pver" "$pprev" "$ptime")
 	fi
 
 	log_json=$(tail -n 80 "$LOG" 2>/dev/null |
@@ -153,14 +149,14 @@ run_bg() {
 
 case "$1" in
 	list)
-		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{},"rollback":{}}'
+		printf '{"status":{},"start":{},"check":{},"cancel":{},"reboot":{}}'
 		;;
 	call)
 		case "$2" in
 			status) do_status ;;
 			start) run_bg manual ;;
 			check) run_bg check ;;
-			cancel|rollback) cancel_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
+			cancel) cancel_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			reboot) apply_update && printf '{"ok":true}' || printf '{"ok":false}' ;;
 			*) printf '{"ok":false,"error":"unknown method"}' ;;
 		esac
