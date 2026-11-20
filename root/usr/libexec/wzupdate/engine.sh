@@ -99,8 +99,14 @@ local_version() {
 }
 
 pending_state() {
-	local pk="" ck=""
+	local pk="" ck="" ps="" cur=""
 	[ -f "$PENDING" ] || { printf 'none'; return 0; }
+	ps=$(kv_read "$PENDING" slot '')
+	cur=$(current_slot 2>/dev/null)
+	if [ -n "$ps" ] && [ -n "$cur" ]; then
+		[ "$ps" = "$cur" ] && printf 'applied' || printf 'pending'
+		return 0
+	fi
 	pk=$(version_key "$(kv_read "$PENDING" version '')")
 	ck=$(version_key "$(local_version)")
 	[ -n "$pk" ] || { printf 'pending'; return 0; }
@@ -803,37 +809,22 @@ run_auto() {
 }
 
 cancel_update() {
-	local pend_key cur_key prev
+	local cur
 	if [ ! -f "$PENDING" ]; then
 		set_state idle 0 '没有待处理的更新'
 		log '没有待处理的更新'
 		return 0
 	fi
-	pend_key=$(version_key "$(kv_read "$PENDING" version '')")
-	cur_key=$(version_key "$(local_version)")
-	if [ -n "$pend_key" ] && [ "$pend_key" = "$cur_key" ]; then
-		prev=$(kv_read "$PENDING" prev_slot 0)
-		if ! set_slot "$prev"; then
-			set_state error 0 '回退失败：无法切换启动分区'
-			log '回退失败：无法切换启动分区'
-			return 1
-		fi
-		rm -f "$PENDING"
-		set_state idle 0 '正在回退到上一版本'
-		log "已切换到上一版本（槽位 $prev），即将重启"
-		(sleep 2; do_reboot) >/dev/null 2>&1 &
-	else
-		cur=$(current_slot 2>/dev/null)
-		if [ -n "$cur" ] && ! set_slot "$cur"; then
-			set_state error 0 '撤回失败：无法恢复启动分区'
-			log '撤回失败：无法写回当前启动槽位'
-			return 1
-		fi
-		rm -f "$PENDING"
-		rm -rf "$WORK" "$FW" "$BASE/partial"
-		set_state idle 0 '已撤回待重启的更新'
-		log '已撤回待重启的更新'
+	cur=$(current_slot 2>/dev/null)
+	if [ -n "$cur" ] && ! set_slot "$cur"; then
+		set_state error 0 '撤回失败：无法恢复启动分区'
+		log '无法写回当前启动槽位'
+		return 1
 	fi
+	rm -f "$PENDING"
+	rm -rf "$WORK" "$FW" "$BASE/partial"
+	set_state idle 0 '已撤回待重启的更新'
+	log '已撤回待重启的更新'
 	return 0
 }
 
@@ -875,12 +866,15 @@ apply_update() {
 	return 0
 }
 
+# 已生效的待重启记录直接清除：更新成功后不再提供回退入口
+[ "$(pending_state)" = "applied" ] && rm -f "$PENDING"
+
 if [ "${WZU_LIB:-0}" != "1" ]; then
 	case "${1:-}" in
 		manual) run_manual ;;
 		check) run_manual ;;
 		auto) run_auto ;;
-		cancel|rollback) cancel_update ;;
+		cancel) cancel_update ;;
 		apply) apply_update ;;
 		*) echo "usage: $0 {manual|check|auto|cancel|apply}" >&2; exit 1 ;;
 	esac
