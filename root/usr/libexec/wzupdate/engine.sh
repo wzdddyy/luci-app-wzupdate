@@ -908,6 +908,48 @@ wipe_overlay() {
 	return 0
 }
 
+cleanup_stale_fstab() {
+	local romdev romuuid ovldev ovluuid sec target want euuid edev found changed=0
+	romdev=$(awk '$2 == "/rom" { print $1; exit }' /proc/mounts 2>/dev/null)
+	ovldev=$(awk '$2 == "/overlay" { print $1; exit }' /proc/mounts 2>/dev/null)
+	romuuid=$(blkid -s UUID -o value "$romdev" 2>/dev/null)
+	ovluuid=$(blkid -s UUID -o value "$ovldev" 2>/dev/null)
+	while :; do
+		found=""
+		for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
+			target=$(uci -q get "$sec.target")
+			case "$target" in
+				/rom) want="$romuuid" ;;
+				/overlay) want="$ovluuid" ;;
+				*) continue ;;
+			esac
+			[ -n "$want" ] || continue
+			euuid=$(uci -q get "$sec.uuid")
+			edev=$(uci -q get "$sec.device")
+			if [ -n "$euuid" ]; then
+				[ "$euuid" = "$want" ] && continue
+				found=$sec
+				break
+			elif [ -n "$edev" ]; then
+				case "$target" in
+					/rom) [ "$edev" = "$romdev" ] && continue ;;
+					/overlay) [ "$edev" = "$ovldev" ] && continue ;;
+				esac
+				found=$sec
+				break
+			fi
+		done
+		[ -n "$found" ] || break
+		uci -q delete "$found"
+		changed=1
+	done
+	if [ "$changed" = "1" ]; then
+		uci -q commit fstab
+		log '已清理失效的系统挂载点配置'
+	fi
+	return 0
+}
+
 apply_update() {
 	local slot
 	if [ ! -f "$PENDING" ]; then
@@ -929,8 +971,10 @@ apply_update() {
 	return 0
 }
 
-# 已生效的待重启记录直接清除
-[ "$(pending_state)" = "applied" ] && rm -f "$PENDING"
+if [ "$(pending_state)" = "applied" ]; then
+	cleanup_stale_fstab
+	rm -f "$PENDING"
+fi
 
 if [ "${WZU_LIB:-0}" != "1" ]; then
 	case "${1:-}" in
