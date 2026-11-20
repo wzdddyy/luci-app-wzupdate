@@ -11,6 +11,12 @@ PENDING=/etc/wzupdate/pending
 REPO_DEFAULT=wzdddyy/iStoreOS-NN6000
 MIRROR_DEFAULT='https://ghfast.top/,https://gh-proxy.com/'
 
+UBOOT_URL='https://raw.githubusercontent.com/wzdddyy/iStoreOS-NN6000/main/partition/uboot-ipq60xx-link_nn6000-261119_213729_b95b887.bin'
+UBOOT_SUM='1406cb73dac3466c973c10b40cfabdc36b82cd07d6476652c73aab4227eddedf'
+UBOOT_SIZE=655360
+UBOOT_TAG='b95b887'
+UBOOT_FW=$BASE/uboot.bin
+
 mkdir -p "$BASE" /etc/wzupdate 2>/dev/null
 
 
@@ -657,6 +663,61 @@ verify_dev() {
 	[ -n "$want" ] && [ "$want" = "$got" ]
 }
 
+uboot_version() {
+	local dev
+	dev=$(part_dev '0:APPSBL') || return 1
+	dd if="$dev" bs=64k count=10 2>/dev/null |
+		grep -a -o 'U-Boot 2016\.01-[0-9A-Za-z._-]*' | head -n1
+}
+
+uboot_check() {
+	local dev cur cur_sha is_new=0 size sha try=0
+	dev=$(part_dev '0:APPSBL') || { log '未找到 0:APPSBL 分区，跳过 U-Boot 检查'; return 0; }
+	cur=$(uboot_version)
+	cur_sha=$(dd if="$dev" bs=1M count=1 2>/dev/null | head -c "$UBOOT_SIZE" | sha256sum | cut -d' ' -f1)
+	if [ -z "$cur_sha" ]; then
+		log '无法读取 0:APPSBL 内容，跳过 U-Boot 更新'
+		return 1
+	fi
+	case "$cur" in
+		*"$UBOOT_TAG"*) is_new=1 ;;
+	esac
+	if [ "$cur_sha" = "$UBOOT_SUM" ] || [ "$is_new" = "1" ]; then
+		return 0
+	fi
+	log '当前 U-Boot 不支持热重启，正在更新'
+	while :; do
+		rm -f "$UBOOT_FW"
+		http_get "$UBOOT_URL" "$UBOOT_FW" && break
+		try=$((try + 1))
+		if [ "$try" -ge 3 ]; then
+			log 'U-Boot 下载失败'
+			return 1
+		fi
+		log "U-Boot 下载失败，60 秒后重试（$try/3）"
+		sleep 60
+	done
+	size=$(file_size "$UBOOT_FW")
+	sha=$(sha256sum "$UBOOT_FW" 2>/dev/null | cut -d' ' -f1)
+	if [ "$size" != "$UBOOT_SIZE" ] || [ "$sha" != "$UBOOT_SUM" ]; then
+		log "U-Boot 校验失败（大小 $size，SHA-256 ${sha:-空}），已放弃"
+		rm -f "$UBOOT_FW"
+		return 1
+	fi
+	log "写入 U-Boot 到 $dev"
+	if ! dd if="$UBOOT_FW" of="$dev" bs=64k conv=fsync 2>/dev/null; then
+		log 'U-Boot 写入失败'
+		return 1
+	fi
+	if ! verify_dev "$dev" "$UBOOT_SIZE" "$UBOOT_SUM"; then
+		log 'U-Boot 写入校验失败'
+		return 1
+	fi
+	rm -f "$UBOOT_FW"
+	log 'U-Boot 更新完成，重启后生效'
+	return 0
+}
+
 write_image() {
 	local active inactive kname rname kdev rdev ksize fsize rsize ksha rsha skip ver stamp prev
 	active=$(current_slot) || {
@@ -765,6 +826,7 @@ run_manual() {
 	lock_take || { log '已有任务在运行'; return 1; }
 	: >"$LOG"
 	log '开始手动检查更新'
+	uboot_check || log 'U-Boot 检查未完成，继续检查固件更新'
 	check_update || { lock_release; return 1; }
 	if [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" != "1" ]; then
 		set_state idle 0 '已是最新版本'
@@ -792,6 +854,7 @@ run_auto() {
 	lock_take || return 0
 	: >"$LOG"
 	log '自动检查更新'
+	uboot_check || log 'U-Boot 检查未完成，继续检查固件更新'
 	if check_update && [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" = "1" ]; then
 		if ! ab_supported; then
 			set_state error 0 '分区不支持在线更新'
@@ -866,7 +929,7 @@ apply_update() {
 	return 0
 }
 
-# 已生效的待重启记录直接清除：更新成功后不再提供回退入口
+# 已生效的待重启记录直接清除
 [ "$(pending_state)" = "applied" ] && rm -f "$PENDING"
 
 if [ "${WZU_LIB:-0}" != "1" ]; then
@@ -876,6 +939,7 @@ if [ "${WZU_LIB:-0}" != "1" ]; then
 		auto) run_auto ;;
 		cancel) cancel_update ;;
 		apply) apply_update ;;
-		*) echo "usage: $0 {manual|check|auto|cancel|apply}" >&2; exit 1 ;;
+		uboot) uboot_check ;;
+		*) echo "usage: $0 {manual|check|auto|cancel|apply|uboot}" >&2; exit 1 ;;
 	esac
 fi
