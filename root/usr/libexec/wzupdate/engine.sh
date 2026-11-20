@@ -826,7 +826,12 @@ run_manual() {
 	lock_take || { log '已有任务在运行'; return 1; }
 	: >"$LOG"
 	log '开始手动检查更新'
-	uboot_check || log 'U-Boot 检查未完成，继续检查固件更新'
+	if ! uboot_check; then
+		set_state error 0 'U-Boot 更新失败，已中止固件更新'
+		log 'U-Boot 更新失败，已中止固件更新'
+		lock_release
+		return 1
+	fi
 	check_update || { lock_release; return 1; }
 	if [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" != "1" ]; then
 		set_state idle 0 '已是最新版本'
@@ -854,7 +859,12 @@ run_auto() {
 	lock_take || return 0
 	: >"$LOG"
 	log '自动检查更新'
-	uboot_check || log 'U-Boot 检查未完成，继续检查固件更新'
+	if ! uboot_check; then
+		set_state error 0 'U-Boot 更新失败，已暂缓固件更新'
+		log 'U-Boot 更新失败，已暂缓固件更新'
+		lock_release
+		return 0
+	fi
 	if check_update && [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" = "1" ]; then
 		if ! ab_supported; then
 			set_state error 0 '分区不支持在线更新'
