@@ -919,43 +919,45 @@ wipe_overlay() {
 }
 
 cleanup_stale_fstab() {
-	local romdev romuuid ovldev ovluuid sec target want euuid edev found changed=0
+	local romdev romuuid ovldev ovluuid sec target want euuid edev enabled changed=0
 	romdev=$(awk '$2 == "/rom" { print $1; exit }' /proc/mounts 2>/dev/null)
 	ovldev=$(awk '$2 == "/overlay" { print $1; exit }' /proc/mounts 2>/dev/null)
 	romuuid=$(blkid -s UUID -o value "$romdev" 2>/dev/null)
 	ovluuid=$(blkid -s UUID -o value "$ovldev" 2>/dev/null)
-	while :; do
-		found=""
-		for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
-			target=$(uci -q get "$sec.target")
+	for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
+		target=$(uci -q get "$sec.target")
+		case "$target" in
+			/rom) want="$romuuid" ;;
+			/overlay) want="$ovluuid" ;;
+			*) continue ;;
+		esac
+		# /rom、/overlay 由 preinit 按内核 cmdline 挂载，fstab 中未启用的条目只会让用户在挂载点页面误触发，直接删除
+		enabled=$(uci -q get "$sec.enabled")
+		if [ "$enabled" = "0" ]; then
+			uci -q delete "$sec"
+			changed=1
+			continue
+		fi
+		# 启用但指向旧槽位分区的失效记录同样删除
+		[ -n "$want" ] || continue
+		euuid=$(uci -q get "$sec.uuid")
+		edev=$(uci -q get "$sec.device")
+		if [ -n "$euuid" ]; then
+			[ "$euuid" = "$want" ] && continue
+		elif [ -n "$edev" ]; then
 			case "$target" in
-				/rom) want="$romuuid" ;;
-				/overlay) want="$ovluuid" ;;
-				*) continue ;;
+				/rom) [ "$edev" = "$romdev" ] && continue ;;
+				/overlay) [ "$edev" = "$ovldev" ] && continue ;;
 			esac
-			[ -n "$want" ] || continue
-			euuid=$(uci -q get "$sec.uuid")
-			edev=$(uci -q get "$sec.device")
-			if [ -n "$euuid" ]; then
-				[ "$euuid" = "$want" ] && continue
-				found=$sec
-				break
-			elif [ -n "$edev" ]; then
-				case "$target" in
-					/rom) [ "$edev" = "$romdev" ] && continue ;;
-					/overlay) [ "$edev" = "$ovldev" ] && continue ;;
-				esac
-				found=$sec
-				break
-			fi
-		done
-		[ -n "$found" ] || break
-		uci -q delete "$found"
+		else
+			continue
+		fi
+		uci -q delete "$sec"
 		changed=1
 	done
 	if [ "$changed" = "1" ]; then
 		uci -q commit fstab
-		log '已清理失效的系统挂载点配置'
+		log '已清理多余的 /rom、/overlay 挂载点配置'
 	fi
 	return 0
 }
