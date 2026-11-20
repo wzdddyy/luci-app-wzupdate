@@ -918,42 +918,102 @@ wipe_overlay() {
 	return 0
 }
 
-cleanup_stale_fstab() {
-	local romdev romuuid ovldev ovluuid sec target want euuid edev enabled changed=0
-	romdev=$(awk '$2 == "/rom" { print $1; exit }' /proc/mounts 2>/dev/null)
-	ovldev=$(awk '$2 == "/overlay" { print $1; exit }' /proc/mounts 2>/dev/null)
-	romuuid=$(blkid -s UUID -o value "$romdev" 2>/dev/null)
-	ovluuid=$(blkid -s UUID -o value "$ovldev" 2>/dev/null)
-	for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
-		target=$(uci -q get "$sec.target")
-		case "$target" in
-			/rom) want="$romuuid" ;;
-			/overlay) want="$ovluuid" ;;
-			*) continue ;;
-		esac
-		# /rom、/overlay 由 preinit 按内核 cmdline 挂载，fstab 中未启用的条目只会让用户在挂载点页面误触发，直接删除
-		enabled=$(uci -q get "$sec.enabled")
-		if [ "$enabled" = "0" ]; then
-			uci -q delete "$sec"
-			changed=1
-			continue
-		fi
-		# 启用但指向旧槽位分区的失效记录同样删除
-		[ -n "$want" ] || continue
-		euuid=$(uci -q get "$sec.uuid")
-		edev=$(uci -q get "$sec.device")
-		if [ -n "$euuid" ]; then
-			[ "$euuid" = "$want" ] && continue
-		elif [ -n "$edev" ]; then
-			case "$target" in
-				/rom) [ "$edev" = "$romdev" ] && continue ;;
-				/overlay) [ "$edev" = "$ovldev" ] && continue ;;
+mount_dev() {
+	local src majmin name
+	src=$(awk -v mp="$1" '$2 == mp { print $1; exit }' /proc/mounts 2>/dev/null)
+	[ -n "$src" ] || return 1
+	case "$src" in
+		/dev/root|rootfs)
+			# /dev/root 不是真实设备节点，用 mountinfo 的 major:minor 反查
+			majmin=$(awk -v mp="$1" '$5 == mp { print $3; exit }' /proc/self/mountinfo 2>/dev/null)
+			case "$majmin" in
+				''|*[!0-9:]*|0:0) return 1 ;;
 			esac
-		else
-			continue
-		fi
-		uci -q delete "$sec"
-		changed=1
+			name=$(readlink -f "/sys/dev/block/$majmin" 2>/dev/null)
+			name=${name##*/}
+			[ -n "$name" ] || return 1
+			printf '/dev/%s' "$name"
+			;;
+		*)
+			readlink -f "$src" 2>/dev/null || printf '%s' "$src"
+			;;
+	esac
+}
+
+blkid_val() {
+	local v=""
+	[ -n "$2" ] && v=$(blkid -s "$1" -o value "$2" 2>/dev/null | head -n1)
+	printf '%s' "$v"
+}
+
+same_dev() {
+	local a b
+	[ -n "$1" ] && [ -n "$2" ] || return 1
+	a=$(readlink -f "$1" 2>/dev/null)
+	[ -n "$a" ] || a=$1
+	b=$(readlink -f "$2" 2>/dev/null)
+	[ -n "$b" ] || b=$2
+	[ "$a" = "$b" ]
+}
+
+cleanup_stale_fstab() {
+	local romdev ovldev romuuid ovluuid romlabel ovllabel
+	local sec target want_uuid want_dev want_label want_known
+	local euuid edev elabel enabled keep changed=0 found
+
+	romdev=$(mount_dev /rom)
+	ovldev=$(mount_dev /overlay)
+	romuuid=$(blkid_val UUID "$romdev")
+	ovluuid=$(blkid_val UUID "$ovldev")
+	romlabel=$(blkid_val LABEL "$romdev")
+	ovllabel=$(blkid_val LABEL "$ovldev")
+
+	# /rom、/overlay 由 preinit 按内核 cmdline 挂载，fstab 里的对应条目只会在挂载点页面误导用户：
+	# 禁用条目和指向旧槽位分区的失效条目都要删除。
+	# 删除匿名分区会让 @mount 下标重排，所以每删一条就重新扫描一次。
+	while :; do
+		found=0
+		set -f
+		for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
+			target=$(uci -q get "$sec.target")
+			case "$target" in
+				/rom) want_uuid=$romuuid; want_dev=$romdev; want_label=$romlabel ;;
+				/overlay) want_uuid=$ovluuid; want_dev=$ovldev; want_label=$ovllabel ;;
+				*) continue ;;
+			esac
+			keep=0
+			enabled=$(uci -q get "$sec.enabled")
+			if [ "$enabled" != "0" ]; then
+				want_known=0
+				if [ -n "$want_uuid" ] || [ -n "$want_dev" ] || [ -n "$want_label" ]; then
+					want_known=1
+				fi
+				if [ "$want_known" != "1" ]; then
+					keep=1
+				else
+					# 用 uuid、device、label 依次比对当前实际挂载的分区；squashfs 没有 UUID，只能靠 device
+					euuid=$(uci -q get "$sec.uuid")
+					edev=$(uci -q get "$sec.device")
+					elabel=$(uci -q get "$sec.label")
+					if [ -n "$euuid" ]; then
+						[ -n "$want_uuid" ] && [ "$euuid" = "$want_uuid" ] && keep=1
+					elif [ -n "$edev" ]; then
+						same_dev "$edev" "$want_dev" && keep=1
+					elif [ -n "$elabel" ]; then
+						[ -n "$want_label" ] && [ "$elabel" = "$want_label" ] && keep=1
+					fi
+				fi
+			fi
+			[ "$keep" = "1" ] && continue
+			if uci -q delete "$sec"; then
+				changed=1
+				found=1
+				log "已删除 $target 挂载点配置"
+			fi
+			break
+		done
+		set +f
+		[ "$found" = "1" ] || break
 	done
 	if [ "$changed" = "1" ]; then
 		uci -q commit fstab
