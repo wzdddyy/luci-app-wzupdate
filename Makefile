@@ -18,7 +18,7 @@ define Package/luci-app-wzupdate
 endef
 
 define Package/luci-app-wzupdate/description
- Link NN6000 固件在线更新：检查新版本、写入备份分区、校验后手动重启生效，支持撤回与回退。
+ Link NN6000 固件在线更新：检查新版本、写入备份分区、校验后手动重启生效，支持撤回。
 endef
 
 define Build/Prepare
