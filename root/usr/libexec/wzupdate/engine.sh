@@ -919,7 +919,7 @@ wipe_overlay() {
 }
 
 cleanup_stale_fstab() {
-	local sec target dev uuid changed=0 found
+	local sec target changed=0 found
 
 	while :; do
 		found=0
@@ -927,18 +927,7 @@ cleanup_stale_fstab() {
 		for sec in $(uci -q show fstab 2>/dev/null | sed -n 's/^\(fstab\.[^=]*\)=mount$/\1/p'); do
 			target=$(uci -q get "$sec.target")
 			case "$target" in
-				/rom) ;;
-				/overlay)
-					dev=$(uci -q get "$sec.device")
-					if [ -z "$dev" ]; then
-						uuid=$(uci -q get "$sec.uuid")
-						if [ -n "$uuid" ]; then
-							dev=$(blkid -U "$uuid" 2>/dev/null)
-							[ -n "$dev" ] || dev=$(blkid -t "UUID=$uuid" -o device 2>/dev/null | head -n1)
-						fi
-					fi
-					[ -n "$dev" ] && [ -b "$dev" ] && continue
-					;;
+				/rom|/overlay) ;;
 				*) continue ;;
 			esac
 			if uci -q delete "$sec"; then
