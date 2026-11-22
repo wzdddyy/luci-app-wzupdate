@@ -6,6 +6,7 @@ USE_PROCD=1
 
 start_service() {
 	( WZU_LIB=1 . /usr/libexec/wzupdate/engine.sh; cleanup_stale_fstab )
+	/usr/libexec/wzupdate/notify-theme.sh apply >/dev/null 2>&1
 	procd_open_instance
 	procd_set_param command /usr/libexec/wzupdate/autocheck
 	procd_set_param respawn 3600 5 0
