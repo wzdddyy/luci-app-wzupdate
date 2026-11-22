@@ -671,7 +671,8 @@ uboot_version() {
 }
 
 uboot_check() {
-	local dev cur cur_sha is_new=0 size sha try=0
+	local dev cur cur_sha is_new=0 size sha try=0 ka rc
+	set_state checking 1 '正在检查 U-Boot'
 	dev=$(part_dev '0:APPSBL') || { log '未找到 0:APPSBL 分区，跳过 U-Boot 检查'; return 0; }
 	cur=$(uboot_version)
 	cur_sha=$(dd if="$dev" bs=1M count=1 2>/dev/null | head -c "$UBOOT_SIZE" | sha256sum | cut -d' ' -f1)
@@ -683,12 +684,19 @@ uboot_check() {
 		*"$UBOOT_TAG"*) is_new=1 ;;
 	esac
 	if [ "$cur_sha" = "$UBOOT_SUM" ] || [ "$is_new" = "1" ]; then
+		log "U-Boot 已是最新（${cur:-未知版本}）"
 		return 0
 	fi
 	log '当前 U-Boot 不支持热重启，正在更新'
+	set_state checking 2 '正在下载 U-Boot'
 	while :; do
 		rm -f "$UBOOT_FW"
-		http_get "$UBOOT_URL" "$UBOOT_FW" && break
+		( while :; do touch "$BASE/lock" 2>/dev/null; sleep 30; done ) &
+		ka=$!
+		http_get "$UBOOT_URL" "$UBOOT_FW"
+		rc=$?
+		kill "$ka" 2>/dev/null
+		[ "$rc" = "0" ] && break
 		try=$((try + 1))
 		if [ "$try" -ge 3 ]; then
 			log 'U-Boot 下载失败'
@@ -705,6 +713,7 @@ uboot_check() {
 		return 1
 	fi
 	log "写入 U-Boot 到 $dev"
+	set_state checking 3 '正在写入 U-Boot'
 	if ! dd if="$UBOOT_FW" of="$dev" bs=64k conv=fsync 2>/dev/null; then
 		log 'U-Boot 写入失败'
 		return 1
