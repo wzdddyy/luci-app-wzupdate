@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-wzupdate
 PKG_VERSION:=1.2.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_MAINTAINER:=wzdddyy
 PKG_LICENSE:=Apache-2.0
 
@@ -38,6 +38,7 @@ define Package/luci-app-wzupdate/install
 	$(INSTALL_DIR) $(1)/usr/libexec/wzupdate
 	$(INSTALL_BIN) ./root/usr/libexec/wzupdate/engine.sh $(1)/usr/libexec/wzupdate/engine.sh
 	$(INSTALL_BIN) ./root/usr/libexec/wzupdate/autocheck $(1)/usr/libexec/wzupdate/autocheck
+	$(INSTALL_BIN) ./root/usr/libexec/wzupdate/notify-theme.sh $(1)/usr/libexec/wzupdate/notify-theme.sh
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/wzupdate $(1)/usr/libexec/rpcd/wzupdate
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
@@ -47,6 +48,8 @@ define Package/luci-app-wzupdate/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/wzupdate
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/wzupdate/overview.js $(1)/www/luci-static/resources/view/wzupdate/overview.js
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/wzupdate/style.css $(1)/www/luci-static/resources/view/wzupdate/style.css
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/wzupdate
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/wzupdate/notify.js $(1)/www/luci-static/resources/wzupdate/notify.js
 endef
 
 define Package/luci-app-wzupdate/conffiles
@@ -56,8 +59,18 @@ endef
 define Package/luci-app-wzupdate/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
+	/usr/libexec/wzupdate/notify-theme.sh apply 2>/dev/null
 	/etc/init.d/wzupdate enable
+	/etc/init.d/wzupdate restart 2>/dev/null
 	rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/*
+}
+exit 0
+endef
+
+define Package/luci-app-wzupdate/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || {
+	/usr/libexec/wzupdate/notify-theme.sh remove 2>/dev/null
 }
 exit 0
 endef
