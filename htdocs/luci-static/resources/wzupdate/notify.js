@@ -13,6 +13,7 @@
 	var current_key = null;
 	var dismissed_key = null;
 	var timer = null;
+	var stopped = false;
 
 	var CSS = [
 		'#wzupdate-notice{position:fixed;top:66px;right:18px;z-index:20000;width:336px;max-width:calc(100vw - 24px);box-sizing:border-box;display:flex;gap:12px;padding:14px 34px 14px 16px;border-radius:14px;background:rgba(255,255,255,.70);color:#1b1f24;border:1px solid rgba(16,24,40,.08);box-shadow:0 14px 36px rgba(16,24,40,.20);font:13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;backdrop-filter:blur(12px);animation:wzupdate-notice-in .28s ease-out}',
@@ -75,7 +76,7 @@
 		current_key = null;
 	}
 
-	function show(key, title, desc) {
+	function show(key, title, desc, label) {
 		if (toast && current_key === key)
 			return;
 		inject_css();
@@ -96,7 +97,7 @@
 
 		var actions = el('div', 'wz-actions');
 		var go = el('a', 'wz-go');
-		go.textContent = '去更新';
+		go.textContent = label || '去更新';
 		go.href = L.url(PAGE);
 		go.addEventListener('click', function() { dismiss(key); });
 		actions.appendChild(go);
@@ -122,39 +123,45 @@
 		current_key = key;
 	}
 
+	function stop_poll() {
+		stopped = true;
+		if (timer) {
+			clearInterval(timer);
+			timer = null;
+		}
+	}
+
 	function handle(st) {
 		if (!st || typeof st !== 'object')
-			return;
+			return false;
 
-		var remote = st.remote || null;
 		var pending = st.pending || null;
 		var key = '';
 		var title = '';
 		var desc = '';
+		var label = '';
 
-		if (pending) {
+		if (pending && st.settings && st.settings.auto) {
 			key = 'pending:' + (pending.version || '');
-			title = '更新已就绪';
-			desc = '新版本已写入备份分区，重启后生效。';
-		}
-		else if (remote && remote.newer) {
-			key = 'newer:' + (remote.tag || remote.version || '');
-			title = '发现新版本';
-			desc = (remote.branch
-				? remote.branch.replace(/^istoreos-/, 'iStoreOS ')
-				: (remote.version || '新固件已发布')) + '，点击前往更新页面。';
+			title = '新版固件已就绪';
+			desc = '已写入备份分区，重启后切换到新版本。';
+			label = '去重启';
 		}
 
-		if (!key || is_dismissed(key)) {
+		if (!key)
+			return false;
+
+		if (is_dismissed(key)) {
 			close();
-			return;
+			return true;
 		}
 
-		show(key, title, desc);
+		show(key, title, desc, label);
+		return true;
 	}
 
 	function start() {
-		if (timer)
+		if (timer || stopped)
 			return;
 		if (!window.L || !L.env || !L.env.sessionid)
 			return;
@@ -165,7 +172,12 @@
 		L.require('rpc').then(function(rpc) {
 			var call = rpc.declare({ object: 'wzupdate', method: 'status' });
 			var tick = function() {
-				call().then(handle).catch(function() {});
+				if (stopped)
+					return;
+				call().then(function(st) {
+					if (handle(st))
+						stop_poll();
+				}).catch(function() {});
 			};
 			tick();
 			timer = setInterval(function() {
