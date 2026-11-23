@@ -6,9 +6,9 @@ iStoreOS-NN6000已于2026-11-20之后的版本内置了此插件，无需单独�
 
 专用插件，非此固件请勿下载安装。
 
-刷机有风险，自行承担后果；本仓库仅用于学习交流。
+分区包含HLOS_1，rootfs_1分区，才能使用此插件更新。
 
-使用此插件需配合指定分区表，详见 [分区说明](https://github.com/wzdddyy/iStoreOS-NN6000/blob/main/partition/README.md)。
+或使用推荐分区镜像，详见 [分区说明](https://github.com/wzdddyy/iStoreOS-NN6000/blob/main/partition/README.md)。
 
 ## 下载
 
