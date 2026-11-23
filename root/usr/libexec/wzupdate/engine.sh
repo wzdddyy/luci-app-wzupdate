@@ -835,6 +835,12 @@ run_manual() {
 	lock_take || { log '已有任务在运行'; return 1; }
 	: >"$LOG"
 	log '开始手动检查更新'
+	if ! ab_supported; then
+		set_state error 0 '分区不支持在线更新'
+		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+		lock_release
+		return 1
+	fi
 	if ! uboot_check; then
 		set_state error 0 'U-Boot 更新失败，已中止固件更新'
 		log 'U-Boot 更新失败，已中止固件更新'
@@ -846,12 +852,6 @@ run_manual() {
 		set_state idle 0 '已是最新版本'
 		lock_release
 		return 0
-	fi
-	if ! ab_supported; then
-		set_state error 0 '分区不支持在线更新'
-		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
-		lock_release
-		return 1
 	fi
 	if download_image && prepare_image && write_image; then
 		:
@@ -868,6 +868,12 @@ run_auto() {
 	lock_take || return 0
 	: >"$LOG"
 	log '自动检查更新'
+	if ! ab_supported; then
+		set_state error 0 '分区不支持在线更新'
+		log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
+		lock_release
+		return 0
+	fi
 	if ! uboot_check; then
 		set_state error 0 'U-Boot 更新失败，已暂缓固件更新'
 		log 'U-Boot 更新失败，已暂缓固件更新'
@@ -875,14 +881,9 @@ run_auto() {
 		return 0
 	fi
 	if check_update && [ "$(kv_read "$REMOTE" REMOTE_NEWER 0)" = "1" ]; then
-		if ! ab_supported; then
-			set_state error 0 '分区不支持在线更新'
-			log "分区检测未通过，缺少：$(ab_missing)；已识别：$(part_labels)"
-		else
-			log '自动更新：开始下载、校验并写入备份分区'
-			if download_image && prepare_image && write_image; then
-				:
-			fi
+		log '自动更新：开始下载、校验并写入备份分区'
+		if download_image && prepare_image && write_image; then
+			:
 		fi
 	else
 		[ "$(get_state phase)" = "error" ] || set_state idle 0 '已是最新版本'
